@@ -26,8 +26,10 @@ dist-ssr
 # Security and Credentials
 .env
 .env.*
+!.env.example
 backend/.env
 backend/.env.*
+!backend/.env.example
 
 # Application Call Logs
 call_logs.json
