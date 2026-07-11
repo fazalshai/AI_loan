@@ -1,690 +1,1319 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageSquare, Phone, Send, CheckCheck, Play, Square, Volume2 } from 'lucide-react';
+import { 
+  MessageSquare, 
+  Phone, 
+  Send, 
+  CheckCheck, 
+  Volume2, 
+  Mic, 
+  MicOff, 
+  Sparkles, 
+  Globe, 
+  Database,
+  Calculator,
+  Loader2,
+  Lock,
+  ChevronRight,
+  TrendingUp,
+  Building,
+  Languages,
+  ArrowRightLeft,
+  XCircle,
+  PhoneCall,
+  PhoneOff,
+  UserCheck,
+  Key,
+  CheckCircle,
+  Smartphone
+} from 'lucide-react';
 
 interface ChatMessage {
   sender: 'user' | 'agent';
   text: string;
   time: string;
+  detectedLang?: 'en' | 'ar';
+  translation?: {
+    user_translated?: string;
+    ai_translated?: string;
+  };
+  data?: any;
 }
 
-interface CallStep {
-  timeOffset: number;
-  speaker: 'agent' | 'user';
-  text: string;
-}
-
-const WHATSAPP_SCENARIOS = {
-  support: [
-    { sender: 'user', text: 'Hey, my order #1029 has not arrived yet.', delay: 500 },
-    { sender: 'agent', text: 'Hi there! I can help you with that. Let me look up order #1029 in our system. One moment... 🔍', delay: 1500 },
-    { sender: 'agent', text: 'It looks like your order is currently at the local sorting facility and is scheduled for delivery tomorrow by 3:00 PM. Would you like me to send you the direct tracking link?', delay: 1800 },
-    { sender: 'user', text: 'Send me the tracking link please.', delay: 1000 },
-    { sender: 'agent', text: 'Here is your tracking link: voxflow.io/track/1029 📦. I have also subscribed your number to real-time status updates.', delay: 1400 },
-    { sender: 'user', text: 'No, that\'s all. Thanks!', delay: 1000 },
-    { sender: 'agent', text: 'You\'re welcome! Have a wonderful day ahead. 😊', delay: 800 }
-  ] as const,
-  leads: [
-    { sender: 'user', text: 'Hi, I saw the listing for 452 Maple Avenue and wanted details.', delay: 500 },
-    { sender: 'agent', text: 'Hi! Thanks for reaching out. 452 Maple Avenue is a gorgeous 3-bedroom, 2.5-bath home priced at $425,000. It features a newly renovated kitchen and a spacious backyard. 🏡\n\nWould you like to schedule a virtual tour or view the full image gallery?', delay: 1800 },
-    { sender: 'user', text: 'I\'d like to book a virtual tour for this Friday afternoon.', delay: 1200 },
-    { sender: 'agent', text: 'Perfect! I have slots open this Friday at 2:00 PM, 3:30 PM, and 5:00 PM. Which one works best for you?', delay: 1400 },
-    { sender: 'user', text: '3:30 PM works.', delay: 900 },
-    { sender: 'agent', text: 'Awesome! I\'ve booked you in for Friday at 3:30 PM. I\'ve sent a calendar invite to your email. I\'ll also send you a reminder here 30 minutes before we start. 📅', delay: 1500 }
-  ] as const,
-  multilingual: [
-    { sender: 'user', text: 'Hola, ¿tienen soporte en español para configurar la cuenta?', delay: 600 },
-    { sender: 'agent', text: '¡Hola! Claro que sí, puedo ayudarte completamente en español. 🇪🇸 ¿Qué tipo de cuenta estás intentando configurar hoy?', delay: 1500 },
-    { sender: 'user', text: 'Quiero la cuenta de Negocios y conectar mi base de datos.', delay: 1100 },
-    { sender: 'agent', text: 'Excelente elección. La cuenta de Negocios incluye integraciones de bases de datos nativas (Postgres, HubSpot). ¿Prefieres que te envíe la guía paso a paso o te gustaría agendar una llamada breve con un ingeniero?', delay: 1800 },
-    { sender: 'user', text: 'Envíame la guía primero.', delay: 800 },
-    { sender: 'agent', text: 'Perfecto, aquí tienes el enlace directo a la documentación de integración: voxflow.io/docs/db-setup 📘. Avísame si tienes alguna duda durante el proceso.', delay: 1500 }
-  ] as const
+const ELEVENLABS_VOICES = {
+  en: [
+    { name: 'Raj Multilingual (Premium)', id: 'wJ5MX7uuKXZwFqGdWM4N' }
+  ],
+  ar: [
+    { name: 'Raj Multilingual (Premium)', id: 'wJ5MX7uuKXZwFqGdWM4N' }
+  ]
 };
 
-const CALL_STEPS: CallStep[] = [
-  { timeOffset: 0, speaker: 'agent', text: 'Hello, thanks for calling Apex Tech! This is Sarah, your AI coordinator. How can I help you today?' },
-  { timeOffset: 5, speaker: 'user', text: 'Hi, I need to reschedule my consultation call for next Tuesday.' },
-  { timeOffset: 9, speaker: 'agent', text: 'No problem at all! Let me check the schedule for next Tuesday, June 23rd. I have availability in the morning at 10:00 AM, or in the afternoon at 2:00 PM. Which of those fits your schedule?' },
-  { timeOffset: 15, speaker: 'user', text: 'Let\'s do 10:00 AM.' },
-  { timeOffset: 18, speaker: 'agent', text: 'Got it. I\'ve updated your consultation slot to Tuesday at 10:00 AM. A confirmation email has been sent. Is there anything else I can help you with?' },
-  { timeOffset: 23, speaker: 'user', text: 'Perfect, thank you!' },
-  { timeOffset: 25, speaker: 'agent', text: 'You\'re very welcome! Have a fantastic day. Goodbye!' }
-];
-
 export const InteractivePlayground: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'whatsapp' | 'calling'>('whatsapp');
+  const [agent, setAgent] = useState<'real_estate' | 'loan'>('real_estate');
+  const [languageMode, setLanguageMode] = useState<'auto' | 'en' | 'ar'>('auto');
+  const [activeLanguage, setActiveLanguage] = useState<'en' | 'ar'>('en');
   
-  // WhatsApp States
-  const [activeScenario, setActiveScenario] = useState<keyof typeof WHATSAPP_SCENARIOS>('support');
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [scenarioStep, setScenarioStep] = useState(0);
-  const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Call States
-  const [callState, setCallState] = useState<'idle' | 'connecting' | 'ringing' | 'connected' | 'ended'>('idle');
+  // Tabs on the right side
+  const [activeRightTab, setActiveRightTab] = useState<'translation' | 'database'>('translation');
+
+  // Audio / TTS States
+  const [synthType, setSynthType] = useState<'elevenlabs'>('elevenlabs'); // Default to ElevenLabs
+  const [xiApiKey, setXiApiKey] = useState(() => localStorage.getItem('elevenlabs_api_key') || '');
+  const [selectedVoice, setSelectedVoice] = useState('wJ5MX7uuKXZwFqGdWM4N'); // Default to custom voice
+  const [ttsError, setTtsError] = useState<string | null>(null);
+  
+  // Microphone & Speech Loops
+  const [isListening, setIsListening] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [isMuted, setIsMuted] = useState(false); 
+
+  // Call simulation states: 'idle' | 'incoming' | 'connected' | 'ended'
+  const [callState, setCallState] = useState<'idle' | 'incoming' | 'connected' | 'ended'>('idle');
   const [callDuration, setCallDuration] = useState(0);
-  const [callTranscript, setCallTranscript] = useState<CallStep[]>([]);
-  const [currentSpeaker, setCurrentSpeaker] = useState<'agent' | 'user' | 'silent'>('silent');
-  const transcriptEndRef = useRef<HTMLDivElement>(null);
 
-  // --- WhatsApp Logics ---
+  // Raw Database values (pre-loaded from Excel)
+  const [defaultData, setDefaultData] = useState<any[]>([]);
+  const [isLoadingDb, setIsLoadingDb] = useState(false);
+
+  // Filtered search results
+  const [explorerData, setExplorerData] = useState<any[]>([]);
+  const [loanCalculation, setLoanCalculation] = useState<any | null>(null);
+
+  // Scroll Container Refs
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const translationContainerRef = useRef<HTMLDivElement>(null);
+  
+  const recognitionRef = useRef<any>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const bargeInAllowedRef = useRef(true);
+  
+  const callStateRef = useRef(callState);
+  const isPlayingAudioRef = useRef(isPlayingAudio);
+  const isMutedRef = useRef(isMuted);
+  const isTypingRef = useRef(isTyping);
+
+  // Web Audio Ringtone oscillators
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const ringtoneIntervalRef = useRef<any>(null);
+
+  // Sync refs to access inside async events
   useEffect(() => {
-    // Reset WhatsApp simulation on scenario change
-    setChatMessages([]);
-    setIsTyping(false);
-    setScenarioStep(0);
-  }, [activeScenario, activeTab]);
-
-  useEffect(() => {
-    if (activeTab !== 'whatsapp') return;
-    const scenario = WHATSAPP_SCENARIOS[activeScenario];
-    if (scenarioStep >= scenario.length) return;
-
-    const currentMsg = scenario[scenarioStep];
-    
-    const timer = setTimeout(() => {
-      if (currentMsg.sender === 'user') {
-        // User messages appear instantly
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        setChatMessages(prev => [...prev, { sender: 'user', text: currentMsg.text, time: timeStr }]);
-        setScenarioStep(prev => prev + 1);
-      } else {
-        // Agent messages show typing indicator first
-        setIsTyping(true);
-        const typingTimer = setTimeout(() => {
-          setIsTyping(false);
-          const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          setChatMessages(prev => [...prev, { sender: 'agent', text: currentMsg.text, time: timeStr }]);
-          setScenarioStep(prev => prev + 1);
-        }, currentMsg.delay);
-        return () => clearTimeout(typingTimer);
-      }
-    }, scenarioStep === 0 ? 1000 : 1200);
-
-    return () => clearTimeout(timer);
-  }, [scenarioStep, activeScenario, activeTab]);
+    callStateRef.current = callState;
+  }, [callState]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages, isTyping]);
+    isPlayingAudioRef.current = isPlayingAudio;
+  }, [isPlayingAudio]);
 
-  const restartWhatsApp = () => {
-    setChatMessages([]);
-    setIsTyping(false);
-    setScenarioStep(0);
-  };
-
-  // --- Calling Logics ---
   useEffect(() => {
-    if (activeTab !== 'calling') {
-      stopCall();
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
+
+  useEffect(() => {
+    isTypingRef.current = isTyping;
+  }, [isTyping]);
+
+  // Adjust scrolls locally
+  useEffect(() => {
+    const chatContainer = chatContainerRef.current;
+    if (chatContainer) {
+      chatContainer.scrollTop = chatContainer.scrollHeight;
     }
-  }, [activeTab]);
+  }, [messages, isTyping]);
 
-  // Handle call timer and transcripts
+  useEffect(() => {
+    const translationContainer = translationContainerRef.current;
+    if (translationContainer) {
+      translationContainer.scrollTop = translationContainer.scrollHeight;
+    }
+  }, [messages]);
+
+  // Keep elevenlabs key in LocalStorage, cleaning up if it was set to the compromised key
+  useEffect(() => {
+    const cachedKey = localStorage.getItem('elevenlabs_api_key');
+    if (cachedKey === 'sk_bf6f6fffe8b010b342c2b0cc9fee10e8d85e30f0725f40e1') {
+      localStorage.removeItem('elevenlabs_api_key');
+      setXiApiKey('');
+    } else {
+      localStorage.setItem('elevenlabs_api_key', xiApiKey);
+    }
+  }, [xiApiKey]);
+
+
+
+  // Call Duration Timer
   useEffect(() => {
     let interval: any;
     if (callState === 'connected') {
       interval = setInterval(() => {
-        setCallDuration(prev => {
-          const nextDur = prev + 1;
-          
-          // Check if there's a script line for this timeOffset
-          const currentStep = CALL_STEPS.find(s => s.timeOffset === nextDur);
-          if (currentStep) {
-            setCallTranscript(t => [...t, currentStep]);
-            setCurrentSpeaker(currentStep.speaker);
-          }
-          
-          // Determine speaker state adjustments
-          const activeSpeaking = CALL_STEPS.find(s => nextDur >= s.timeOffset && nextDur < s.timeOffset + 3.5);
-          if (activeSpeaking) {
-            setCurrentSpeaker(activeSpeaking.speaker);
-          } else {
-            setCurrentSpeaker('silent');
-          }
-
-          // Call ends
-          if (nextDur >= 28) {
-            setCallState('ended');
-            setCurrentSpeaker('silent');
-            clearInterval(interval);
-          }
-
-          return nextDur;
-        });
+        setCallDuration(prev => prev + 1);
       }, 1000);
+    } else {
+      setCallDuration(0);
     }
     return () => clearInterval(interval);
   }, [callState]);
 
+  // Pre-load Excel dataset
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [callTranscript]);
+    loadSpreadsheetRows();
+    resetChat();
+  }, [agent]);
 
-  const startCall = () => {
-    setCallState('connecting');
-    setCallDuration(0);
-    setCallTranscript([]);
-    setCurrentSpeaker('silent');
+  const loadSpreadsheetRows = async () => {
+    setIsLoadingDb(true);
+    try {
+      const response = await fetch(`/api/data?agent=${agent}`);
+      const result = await response.json();
+      if (result.data) {
+        setDefaultData(result.data);
+      }
+    } catch (e) {
+      console.error("Failed to load spreadsheet rows:", e);
+    } finally {
+      setIsLoadingDb(false);
+    }
+  };
 
-    setTimeout(() => {
-      setCallState('ringing');
+  // Web Audio simulated Telephone Ringtone
+  const playRingtone = () => {
+    try {
+      if (audioContextRef.current) return;
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      audioContextRef.current = ctx;
+
+      const ringBeep = () => {
+        if (ctx.state === 'closed') return;
+        
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc1.frequency.value = 440;
+        osc2.frequency.value = 480;
+
+        osc1.connect(gain);
+        osc2.connect(gain);
+        gain.connect(ctx.destination);
+
+        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + 0.05);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime + 1.2);
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.3);
+
+        osc1.start();
+        osc2.start();
+
+        setTimeout(() => {
+          try {
+            osc1.stop();
+            osc2.stop();
+          } catch(e){}
+        }, 1500);
+      };
+
+      ringBeep();
+      ringtoneIntervalRef.current = setInterval(ringBeep, 4000);
+    } catch(e) {
+      console.warn("AudioContext failed to start:", e);
+    }
+  };
+
+  const stopRingtone = () => {
+    if (ringtoneIntervalRef.current) {
+      clearInterval(ringtoneIntervalRef.current);
+      ringtoneIntervalRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+  };
+
+  // Initialize Speech Recognition with Auto-Restart for Continuous Call conversation
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const rec = new SpeechRecognition();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.lang = activeLanguage === 'en' ? 'en-US' : 'ar-AE';
+
+      rec.onstart = () => {
+        setIsListening(true);
+      };
+
+      rec.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+
+        const combinedText = (interimTranscript.trim() || finalTranscript.trim()).toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g,"").trim();
+
+        // Barge-in: If user speaks anything while the agent is talking or thinking, interrupt!
+        // Ignore tiny background noise / static loops (requires length >= 4 characters to trigger barge-in)
+        if (combinedText.length >= 4 && (isPlayingAudioRef.current || isTypingRef.current) && bargeInAllowedRef.current) {
+          const IGNORE_BARGE_IN = new Set(["hi", "hello", "hmm", "uh", "this", "this is", "مرحبا", "أهلاً"]);
+          if (!IGNORE_BARGE_IN.has(combinedText)) {
+            console.log("Interruption detected! Stopping audio and cancelling request. Text:", combinedText);
+            stopAudio();
+            if (abortControllerRef.current) {
+              abortControllerRef.current.abort();
+              abortControllerRef.current = null;
+            }
+            setIsTyping(false);
+          }
+        }
+
+        const cleanFinal = finalTranscript.trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g,"").trim();
+        if (cleanFinal.length >= 3) {
+          const IGNORE_FILLERS = new Set(["hi", "hello", "hmm", "uh", "this", "this is", "مرحبا", "أهلاً", "نعم", "yes", "no", "لا"]);
+          if (!IGNORE_FILLERS.has(cleanFinal)) {
+            submitMessage(finalTranscript);
+          } else {
+            console.log("Ignored filler transcript noise in browser STT:", finalTranscript);
+          }
+        }
+      };
+
+      rec.onerror = (e: any) => {
+        console.error('STT Error:', e);
+        setIsListening(false);
+      };
+
+      // Auto-restart loop when call is active
+      rec.onend = () => {
+        setIsListening(false);
+        setTimeout(() => {
+          if (
+            callStateRef.current === 'connected' && 
+            !isMutedRef.current &&
+            !isTypingRef.current
+          ) {
+            try {
+              rec.start();
+            } catch (e) {}
+          }
+        }, 400);
+      };
+
+      recognitionRef.current = rec;
+    }
+  }, [activeLanguage]);
+
+  const resetChat = () => {
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setMessages([
+      {
+        sender: 'agent',
+        text: getWelcomeMessage(activeLanguage),
+        time: timeStr,
+        detectedLang: activeLanguage,
+        translation: {
+          ai_translated: getWelcomeMessage(activeLanguage === 'en' ? 'ar' : 'en')
+        }
+      }
+    ]);
+    setExplorerData([]);
+    setLoanCalculation(null);
+  };
+
+  const getWelcomeMessage = (lang: 'en' | 'ar') => {
+    if (agent === 'real_estate') {
+      return lang === 'en'
+        ? "Hello! I am Yasmin, your Dubai real estate assistant. I can search properties live from our Dubai listings database. Ask me about properties in JLT, Downtown Dubai, or Dubai Hills Estate."
+        : "مرحباً بك! أنا ياسمين، مستشارتك العقارية في دبي. يمكنني البحث عن العقارات مباشرة من قاعدة بياناتنا. استفسر عن شقق في أبراج بحيرات جميرا، أو بنتهاوس في داون تاون دبي.";
+    } else {
+      return lang === 'en'
+        ? "Hello! I am Faris, your Dubai mortgage loan agent. Provide your salary, credit score, liabilities, and age, and I will assess your loan eligibility and compute EMI."
+        : "أهلاً بك! أنا فارس، مستشار التمويل العقاري في دبي. يرجى تزويدي بالراتب، درجة الائتمان، الالتزامات الشهرية، والعمر، وسأقوم باحتساب أقصى مبلغ قرض مؤهل لك.";
+    }
+  };
+
+  // Browser Speak Synthesis
+  const speakBrowser = (text: string, speakLang: 'en' | 'ar') => {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = speakLang === 'en' ? 'en-GB' : 'ar-AE';
+
+    const voices = window.speechSynthesis.getVoices();
+    let targetVoice = null;
+    if (speakLang === 'en') {
+      targetVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes("Siri"))
+        || voices.find(v => v.lang.startsWith('en') && v.name.includes("Samantha"))
+        || voices.find(v => v.lang.startsWith('en') && v.name.includes("Google"))
+        || voices.find(v => v.lang.startsWith('en') && v.name.includes("Daniel"))
+        || voices.find(v => v.lang.startsWith('en') && (v.name.includes("Premium") || v.name.includes("Natural")))
+        || voices.find(v => v.lang.startsWith('en'));
+    } else {
+      targetVoice = voices.find(v => v.lang.startsWith('ar') && v.name.includes("Siri"))
+        || voices.find(v => v.lang.startsWith('ar') && v.name.includes("Maged"))
+        || voices.find(v => v.lang.startsWith('ar') && v.name.includes("Laila"))
+        || voices.find(v => v.lang.startsWith('ar') && v.name.includes("Google"))
+        || voices.find(v => v.lang.startsWith('ar'));
+    }
+
+    if (targetVoice) {
+      utterance.voice = targetVoice;
+    }
+
+    utterance.onstart = () => {
+      setIsPlayingAudio(true);
+      bargeInAllowedRef.current = false;
       setTimeout(() => {
-        setCallState('connected');
-        // Push initial greeting
-        const initial = CALL_STEPS[0];
-        setCallTranscript([initial]);
-        setCurrentSpeaker('agent');
-      }, 2000);
-    }, 1500);
+        bargeInAllowedRef.current = true;
+      }, 1200);
+    };
+    
+    utterance.onend = () => {
+      setIsPlayingAudio(false);
+    };
+    
+    utterance.onerror = () => {
+      setIsPlayingAudio(false);
+    };
+
+    window.speechSynthesis.speak(utterance);
   };
 
-  const stopCall = () => {
+  // Safe Blob-based Audio Playback to prevent browser decode errors
+  const speakElevenLabs = async (text: string, speakLang: 'en' | 'ar') => {
+    try {
+      setIsPlayingAudio(true);
+
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          text,
+          voice_id: selectedVoice,
+          api_key: xiApiKey // Pass UI input key, backend will fall back to .env if empty
+        })
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.detail?.message || "ElevenLabs synthesis failed.");
+      }
+
+      const blob = await response.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+
+      audio.onplay = () => {
+        setIsPlayingAudio(true);
+        setTtsError(null); // Clear errors
+        bargeInAllowedRef.current = false;
+        setTimeout(() => {
+          bargeInAllowedRef.current = true;
+        }, 1200);
+      };
+
+      audio.onended = () => {
+        setIsPlayingAudio(false);
+      };
+
+      audio.onerror = () => {
+        setIsPlayingAudio(false);
+        setTtsError("Failed to decode audio stream.");
+        speakBrowser(text, speakLang);
+      };
+
+      await audio.play();
+
+    } catch (e: any) {
+      console.warn("ElevenLabs failed, falling back to browser voice:", e);
+      setTtsError(e.message || "ElevenLabs failed. Falling back.");
+      speakBrowser(text, speakLang);
+    }
+  };
+
+  const triggerTTS = (text: string, speakLang: 'en' | 'ar') => {
+    if (!text || !text.trim()) {
+      setIsPlayingAudio(false);
+      return;
+    }
+    if (synthType === 'elevenlabs') {
+      speakElevenLabs(text, speakLang);
+    } else {
+      speakBrowser(text, speakLang);
+    }
+  };
+
+  const stopAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsPlayingAudio(false);
+  };
+
+  // Submit message
+  const submitMessage = async (msgText: string) => {
+    if (!msgText.trim()) return;
+
+    // Filter out short filler noise from being submitted to state/server
+    const cleanText = msgText.trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g,"").trim();
+    if (cleanText.length < 3) {
+      console.log("Ignored submission of too short transcript:", msgText);
+      return;
+    }
+    const IGNORE_FILLERS = new Set(["hi", "hello", "hmm", "uh", "this", "this is", "مرحبا", "أهلاً", "نعم", "yes", "no", "لا"]);
+    if (IGNORE_FILLERS.has(cleanText)) {
+      console.log("Ignored submission of standalone filler noise:", msgText);
+      return;
+    }
+
+    stopAudio();
+    
+    // Abort any existing pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const userMsg: ChatMessage = {
+      sender: 'user',
+      text: msgText,
+      time: timeStr
+    };
+
+    setMessages(prev => [...prev, userMsg]);
+    setInputValue('');
+    setIsTyping(true);
+
+    try {
+      const historyContext = messages.map(m => ({ sender: m.sender, text: m.text }));
+      const payload: any = {
+        message: msgText,
+        agent,
+        history: historyContext
+      };
+      
+      if (languageMode !== 'auto') {
+        payload.language = languageMode;
+      }
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload),
+        signal: abortControllerRef.current.signal
+      });
+
+      const resData = await response.json();
+
+      if (languageMode === 'auto' && resData.active_language) {
+        setActiveLanguage(resData.active_language);
+      }
+
+      const agentMsg: ChatMessage = {
+        sender: 'agent',
+        text: resData.text || 'Error parsing response.',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        detectedLang: resData.active_language || activeLanguage,
+        translation: {
+          user_translated: resData.translation?.user_translated,
+          ai_translated: resData.translation?.ai_translated
+        },
+        data: resData.data
+      };
+
+      setMessages(prev => {
+        const next = [...prev];
+        const lastUser = next[next.length - 1];
+        if (lastUser && lastUser.sender === 'user') {
+          lastUser.translation = {
+            user_translated: resData.translation?.user_translated
+          };
+          lastUser.detectedLang = resData.detected_language;
+        }
+        next.push(agentMsg);
+        return next;
+      });
+
+      if (agent === 'real_estate' && Array.isArray(resData.data)) {
+        setExplorerData(resData.data);
+      } else if (agent === 'loan' && resData.data) {
+        if (resData.data.calculation) {
+          setLoanCalculation(resData.data.calculation);
+        }
+        if (Array.isArray(resData.data.references)) {
+          setExplorerData(resData.data.references);
+        }
+      }
+
+      triggerTTS(agentMsg.text, agentMsg.detectedLang || activeLanguage);
+
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        console.log("Gemini request was aborted successfully due to user interruption.");
+        return;
+      }
+      console.error(e);
+      setMessages(prev => [...prev, {
+        sender: 'agent',
+        text: activeLanguage === 'en' ? 'Connection lost to server.' : 'خطأ في الاتصال بالخادم.',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
+    } finally {
+      setIsTyping(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const toggleMute = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    }
+    setIsMuted(!isMuted);
+  };
+
+  const handleMicClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (isPlayingAudio) {
+      stopAudio();
+    }
+    if (isListening) {
+      recognitionRef.current?.stop();
+    } else {
+      setIsMuted(false);
+      try {
+        recognitionRef.current?.start();
+      } catch(e){}
+    }
+  };
+
+  const clearFilters = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setExplorerData([]);
+    setLoanCalculation(null);
+  };
+
+  // Ringing Call Flow
+  const initiateCall = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setCallState('incoming');
+    playRingtone();
+  };
+
+  const answerCall = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    stopRingtone();
+    setCallState('connected');
+    setIsMuted(false);
+    
+    // Request microphone access during this user gesture to authorize the browser
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Start the continuous SpeechRecognition engine immediately!
+      try {
+        recognitionRef.current?.start();
+      } catch (e) {}
+      bargeInAllowedRef.current = false;
+      setTimeout(() => {
+        bargeInAllowedRef.current = true;
+      }, 1500); // 1.5s guard window for pickup click
+    } catch (err) {
+      console.warn("Microphone access denied or blocked:", err);
+    }
+    
+    // Start greeting immediately (plays streaming audio)
+    const lastMsg = messages[messages.length - 1];
+    triggerTTS(lastMsg?.text || getWelcomeMessage(activeLanguage), lastMsg?.detectedLang || activeLanguage);
+  };
+
+  const declineCall = (e: React.MouseEvent) => {
+    e.preventDefault();
+    stopRingtone();
     setCallState('idle');
-    setCallDuration(0);
-    setCallTranscript([]);
-    setCurrentSpeaker('silent');
   };
 
-  const formatDuration = (sec: number) => {
-    const mins = Math.floor(sec / 60);
-    const secs = sec % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  const endCall = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setCallState('ended');
+    stopAudio();
+    setTimeout(() => {
+      setCallState('idle');
+    }, 1200);
+  };
+
+  const formatCurrency = (val: number) => {
+    return new Intl.NumberFormat('en-AE', { style: 'currency', currency: 'AED', maximumFractionDigits: 0 }).format(val);
   };
 
   return (
     <section id="playground" className="playground-section" style={{ padding: '6rem 0', position: 'relative' }}>
       <div className="container">
         
-        {/* Section Header */}
-        <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
+        {/* Section Title */}
+        <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
           <span className="badge">
-            <Volume2 size={12} /> Interactive Sandbox
+            <Sparkles size={12} style={{ color: 'var(--secondary)' }} /> Voice & Dialect Translation Sandbox
           </span>
           <h2 style={{ fontSize: '2.5rem', marginTop: '1rem', marginBottom: '1.2rem' }}>
-            Experience the <span className="gradient-accent">Agent Playground</span>
+            Dual-Agent <span className="gradient-accent">Live Voice Sandbox</span>
           </h2>
-          <p style={{ maxWidth: '600px', margin: '0 auto', fontSize: '1.1rem' }}>
-            Interact with our pre-built modules below. Toggle between the WhatsApp chat bot or standard outbound voice agent call interfaces.
+          <p style={{ maxWidth: '650px', margin: '0 auto', fontSize: '1.05rem', color: 'var(--text-secondary)' }}>
+            Experience our intelligent dialect recognition engine. Turn on the mic and speak in English or Arabic; the system auto-tunes language mode and generates real-time side translation!
           </p>
         </div>
 
-        {/* Tabs Switcher */}
-        <div style={{
-          display: 'flex',
-          justifyContent: 'center',
-          gap: '1rem',
-          marginBottom: '3rem'
-        }}>
-          <button 
-            className={`btn ${activeTab === 'whatsapp' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setActiveTab('whatsapp')}
-            style={{ borderRadius: '12px', padding: '0.6rem 1.5rem' }}
-          >
-            <MessageSquare size={18} /> WhatsApp Agent
-          </button>
-          <button 
-            className={`btn ${activeTab === 'calling' ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setActiveTab('calling')}
-            style={{ borderRadius: '12px', padding: '0.6rem 1.5rem' }}
-          >
-            <Phone size={18} /> Outbound Voice Agent
-          </button>
+        {/* Global Connection Settings Block */}
+        <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '2.5rem', border: '1px solid rgba(139, 92, 246, 0.25)' }}>
+          <div style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '1.5rem'
+          }}>
+            
+            {/* API Status Checkers */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
+                <div>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Sparkles size={12} style={{ color: 'var(--secondary)' }} /> Gemini 2.5 Flash
+                  </div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Connected & Active (.env API Key)</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>ACTIVE AGENT</span>
+                <div style={{ display: 'flex', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '3px', border: '1px solid var(--border-glass)' }}>
+                  <button 
+                    className={`btn-sub-toggle ${agent === 'real_estate' ? 'active' : ''}`}
+                    onClick={() => { setAgent('real_estate'); stopAudio(); }}
+                  >
+                    🏡 Yasmin (Real Estate)
+                  </button>
+                  <button 
+                    className={`btn-sub-toggle ${agent === 'loan' ? 'active' : ''}`}
+                    onClick={() => { setAgent('loan'); stopAudio(); }}
+                  >
+                    🏦 Faris (Mortgage Loan)
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>TUNING DIALECT MODE</span>
+                <div style={{ display: 'flex', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '3px', border: '1px solid var(--border-glass)' }}>
+                  <button 
+                    className={`btn-sub-toggle ${languageMode === 'auto' ? 'active' : ''}`}
+                    onClick={() => { setLanguageMode('auto'); stopAudio(); }}
+                  >
+                    ✨ Auto-Detect (Eng/Ar)
+                  </button>
+                  <button 
+                    className={`btn-sub-toggle ${languageMode === 'en' ? 'active' : ''}`}
+                    onClick={() => { setLanguageMode('en'); setActiveLanguage('en'); stopAudio(); }}
+                  >
+                    🇺🇸 English Only
+                  </button>
+                  <button 
+                    className={`btn-sub-toggle ${languageMode === 'ar' ? 'active' : ''}`}
+                    onClick={() => { setLanguageMode('ar'); setActiveLanguage('ar'); stopAudio(); }}
+                  >
+                    🇦🇪 Arabic Only
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* ElevenLabs API Key Panel */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', flexGrow: 1, maxWidth: '420px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Key size={12} style={{ color: 'var(--primary)' }} /> ELEVENLABS SYNTHESIZER (STREAMING)
+                </span>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <label style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', color: synthType === 'elevenlabs' ? 'var(--primary)' : 'var(--text-secondary)' }}>
+                    <input type="radio" name="synth" checked={synthType === 'elevenlabs'} readOnly /> ElevenLabs (Human Stream)
+                  </label>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '5px', alignItems: 'center' }}>
+                <div style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'rgba(16, 185, 129, 0.08)',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  borderRadius: '6px',
+                  padding: '6px 12px',
+                  color: '#34d399',
+                  fontSize: '0.8rem',
+                  boxShadow: '0 0 10px rgba(16, 185, 129, 0.05)'
+                }}>
+                  <CheckCircle size={14} />
+                  <span>Secure Server Key (.env Active)</span>
+                </div>
+                <div style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: 'rgba(139, 92, 246, 0.08)',
+                  border: '1px solid rgba(139, 92, 246, 0.3)',
+                  borderRadius: '6px',
+                  padding: '6px 12px',
+                  color: '#a78bfa',
+                  fontSize: '0.8rem',
+                  boxShadow: '0 0 10px rgba(139, 92, 246, 0.05)'
+                }}>
+                  <Volume2 size={14} />
+                  <span>Raj Multilingual Active</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
         </div>
 
-        <div className="grid-2" style={{ alignItems: 'start' }}>
+        {/* Sandbox Split Panels */}
+        <div className="grid-2" style={{ alignItems: 'stretch' }}>
           
-          {/* LEFT SIDE: Control Dashboard & Explanations */}
-          <div className="glass-panel" style={{ padding: '2.5rem', height: '100%' }}>
-            {activeTab === 'whatsapp' ? (
-              <div>
-                <h3 style={{ fontSize: '1.8rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <MessageSquare style={{ color: '#25D366' }} /> WhatsApp Flow AI
-                </h3>
-                <p style={{ marginBottom: '1.5rem' }}>
-                  Automate incoming leads, customer support, and sales funnels natively via WhatsApp. Our agents ingest custom knowledge sources to respond instantly with absolute accuracy.
-                </p>
-
-                {/* Scenario Selectors */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
-                  <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                    SELECT SIMULATION SCENARIO:
-                  </label>
-                  
-                  <button 
-                    className={`scenario-btn ${activeScenario === 'support' ? 'active' : ''}`}
-                    onClick={() => setActiveScenario('support')}
-                  >
-                    <div style={{ textAlign: 'left' }}>
-                      <div style={{ fontWeight: 600 }}>📦 Order Support & Returns</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Looks up shipping databases and processes logic.</div>
-                    </div>
-                  </button>
-
-                  <button 
-                    className={`scenario-btn ${activeScenario === 'leads' ? 'active' : ''}`}
-                    onClick={() => setActiveScenario('leads')}
-                  >
-                    <div style={{ textAlign: 'left' }}>
-                      <div style={{ fontWeight: 600 }}>🏡 Real Estate Consultation</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Captures home details, books live tours.</div>
-                    </div>
-                  </button>
-
-                  <button 
-                    className={`scenario-btn ${activeScenario === 'multilingual' ? 'active' : ''}`}
-                    onClick={() => setActiveScenario('multilingual')}
-                  >
-                    <div style={{ textAlign: 'left' }}>
-                      <div style={{ fontWeight: 600 }}>🇪🇸 Multi-lingual Integration</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Seamlessly switches languages (Spanish demo).</div>
-                    </div>
-                  </button>
-                </div>
-
-                <div style={{ display: 'flex', gap: '1rem' }}>
-                  <button className="btn btn-secondary" onClick={restartWhatsApp} style={{ borderRadius: '8px' }}>
-                    Restart Simulation
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div>
-                <h3 style={{ fontSize: '1.8rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Phone style={{ color: 'var(--secondary)' }} /> Voice Agent Sarah
-                </h3>
-                <p style={{ marginBottom: '1.5rem' }}>
-                  VoxFlow AI call agents sound completely human. Operating with ultra-low latency (&lt;800ms response time) and intelligent active-listening features to answer questions, handle bookings, or qualify clients.
-                </p>
-
-                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '1.2rem', borderRadius: '12px', border: '1px solid var(--border-glass)', marginBottom: '2rem' }}>
-                  <h4 style={{ fontSize: '0.95rem', color: 'var(--secondary)', marginBottom: '0.5rem' }}>How it handles calls:</h4>
-                  <ul style={{ listStyleType: 'none', display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                    <li>🎙️ <strong>Natural Intonation:</strong> Dynamic breaths, fillers ("uh-huh"), and custom pitch controls.</li>
-                    <li>⚡ <strong>Interruption Handling:</strong> Stops talking immediately if the user cuts in.</li>
-                    <li>💾 <strong>Realtime Integrations:</strong> Fetches customer CRM data mid-sentence.</li>
-                  </ul>
-                </div>
-
-                {callState === 'idle' || callState === 'ended' ? (
-                  <button className="btn btn-primary" onClick={startCall} style={{ width: '100%', borderRadius: '10px' }}>
-                    <Play size={16} /> Initiate AI Voice Call
-                  </button>
-                ) : (
-                  <button className="btn" onClick={stopCall} style={{ width: '100%', borderRadius: '10px', background: '#ef4444', color: '#fff' }}>
-                    <Square size={16} /> Hang Up Call
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* RIGHT SIDE: Interactive Visual Mockups */}
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
+          {/* LEFT COLUMN: Smartphone Mockup Call Dashboard */}
+          <div className="glass-panel" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '620px', position: 'relative', overflow: 'hidden' }}>
             
-            {/* WHATSAPP MOCKUP */}
-            {activeTab === 'whatsapp' && (
-              <div className="mockup-phone glass-panel" style={{
-                width: '340px',
-                height: '560px',
-                borderRadius: '36px',
-                border: '8px solid #1e293b',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-                background: '#0b141a', // WhatsApp Dark background
-                position: 'relative'
-              }}>
-                {/* Phone Header notch */}
-                <div style={{
-                  height: '24px',
-                  background: '#070a0e',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center'
-                }}>
-                  <div style={{ width: '100px', height: '14px', background: '#1e293b', borderRadius: '0 0 10px 10px' }} />
-                </div>
-
-                {/* WhatsApp Chat Header */}
-                <div style={{
-                  background: '#1f2c34',
-                  padding: '10px 15px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  borderBottom: '1px solid rgba(255,255,255,0.05)'
-                }}>
-                  <div style={{
-                    width: '36px',
-                    height: '36px',
-                    borderRadius: '50%',
-                    background: 'linear-gradient(135deg, var(--primary), var(--secondary))',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '1.1rem',
-                    fontWeight: 'bold'
-                  }}>
-                    V
-                  </div>
-                  <div>
-                    <h4 style={{ fontSize: '0.9rem', color: '#e9edef' }}>VoxFlow AI</h4>
-                    <span style={{ fontSize: '0.7rem', color: '#8696a0', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#25D366' }} />
-                      Online
-                    </span>
-                  </div>
-                </div>
-
-                {/* Message Log */}
-                <div className="custom-scrollbar" style={{
-                  flex: 1,
-                  padding: '15px',
-                  overflowY: 'auto',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '10px',
-                  backgroundImage: 'radial-gradient(#1f2c34 1px, transparent 0)',
-                  backgroundSize: '16px 16px',
-                  backgroundPosition: 'center'
-                }}>
-                  {chatMessages.length === 0 && !isTyping && (
-                    <div style={{ color: '#8696a0', fontSize: '0.8rem', textAlign: 'center', marginTop: '2rem', padding: '1rem' }}>
-                      Loading simulation scripts...
-                    </div>
-                  )}
-                  {chatMessages.map((msg, i) => (
-                    <div 
-                      key={i} 
-                      style={{
-                        alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
-                        background: msg.sender === 'user' ? '#005c4b' : '#202c33',
-                        color: '#e9edef',
-                        padding: '8px 12px',
-                        borderRadius: msg.sender === 'user' ? '12px 0px 12px 12px' : '0px 12px 12px 12px',
-                        maxWidth: '85%',
-                        fontSize: '0.85rem',
-                        boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
-                        wordBreak: 'break-word',
-                        whiteSpace: 'pre-line'
-                      }}
-                    >
-                      <div>{msg.text}</div>
-                      <div style={{
-                        display: 'flex',
-                        justifyContent: 'flex-end',
-                        alignItems: 'center',
-                        fontSize: '0.65rem',
-                        color: '#8696a0',
-                        marginTop: '4px',
-                        gap: '2px'
-                      }}>
-                        {msg.time}
-                        {msg.sender === 'user' && <CheckCheck size={12} style={{ color: '#53bdeb' }} />}
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Typing Indicator */}
-                  {isTyping && (
-                    <div style={{
-                      alignSelf: 'flex-start',
-                      background: '#202c33',
-                      color: '#e9edef',
-                      padding: '8px 15px',
-                      borderRadius: '0px 12px 12px 12px',
-                      fontSize: '0.85rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}>
-                      <span className="dot-typing" />
-                      <span className="dot-typing" style={{ animationDelay: '0.2s' }} />
-                      <span className="dot-typing" style={{ animationDelay: '0.4s' }} />
-                    </div>
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
-
-                {/* Footer Input Bar */}
-                <div style={{
-                  padding: '10px 12px',
-                  background: '#1f2c34',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}>
-                  <div style={{
-                    flex: 1,
-                    background: '#2a3942',
-                    borderRadius: '8px',
-                    padding: '8px 12px',
-                    fontSize: '0.8rem',
-                    color: '#8696a0'
-                  }}>
-                    Type a message...
-                  </div>
-                  <button style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '50%',
-                    background: '#00a884',
-                    border: 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#fff'
-                  }}>
-                    <Send size={14} />
-                  </button>
-                </div>
+            {/* Phone Notch & Styling details */}
+            <div style={{
+              width: '100%',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              borderBottom: '1px solid var(--border-glass)',
+              paddingBottom: '0.8rem',
+              marginBottom: '1.5rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Smartphone size={16} style={{ color: 'var(--secondary)' }} />
+                <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-secondary)' }}>
+                  AGENT TELEPHONY TERMINAL
+                </span>
               </div>
-            )}
+              <div>
+                <span className="pulse-indicator" />
+                <span style={{ fontSize: '0.7rem', color: '#10b981', marginLeft: '5px', fontWeight: 'bold' }}>STREAMING LIVE</span>
+              </div>
+            </div>
 
-            {/* CALLING MOCKUP */}
-            {activeTab === 'calling' && (
-              <div className="mockup-phone glass-panel" style={{
-                width: '340px',
-                height: '560px',
-                borderRadius: '36px',
-                border: '8px solid #1e293b',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-                background: '#090d16',
-                position: 'relative'
-              }}>
-                {/* Phone Header notch */}
-                <div style={{
-                  height: '24px',
-                  background: '#070a0e',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center'
-                }}>
-                  <div style={{ width: '100px', height: '14px', background: '#1e293b', borderRadius: '0 0 10px 10px' }} />
-                </div>
+            {/* SMARTPHONE DEVICE SCREEN MOCKUP */}
+            <div className="phone-device-frame" style={{
+              width: '320px',
+              height: '480px',
+              borderRadius: '24px',
+              background: '#090d16',
+              border: '6px solid #1e293b',
+              boxShadow: '0 15px 35px rgba(0,0,0,0.6)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              position: 'relative'
+            }}>
+              
+              {/* Speaker notch */}
+              <div style={{ height: '18px', background: '#000', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <div style={{ width: '60px', height: '4px', background: '#334155', borderRadius: '2px' }} />
+              </div>
 
-                {/* Call Panel Content */}
-                <div style={{
-                  flex: 1,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '2rem 1.5rem',
-                  color: '#fff'
-                }}>
-                  {/* Active Info */}
-                  <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+              {/* IDLE SCREEN (Dialer style layout) */}
+              {callState === 'idle' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '1.5rem', color: '#fff' }}>
+                  <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
                     <div style={{
                       width: '76px',
                       height: '76px',
                       borderRadius: '50%',
-                      background: 'radial-gradient(circle, var(--primary) 0%, var(--secondary) 100%)',
+                      background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid var(--border-glass)',
                       margin: '0 auto 1rem',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       fontSize: '2rem',
-                      fontWeight: 600,
-                      boxShadow: callState === 'connected' ? '0 0 25px rgba(6, 182, 212, 0.4)' : 'none',
-                      animation: callState === 'connected' ? 'pulse 2s infinite' : 'none'
+                      color: 'var(--secondary)'
                     }}>
-                      S
+                      {agent === 'real_estate' ? '🏡' : '🏦'}
                     </div>
-                    <h3 style={{ fontSize: '1.2rem', margin: 0 }}>Sarah AI Agent</h3>
-                    <p style={{ 
-                      fontSize: '0.85rem', 
-                      color: callState === 'connected' ? '#06b6d4' : 'var(--text-secondary)',
-                      marginTop: '0.2rem',
-                      fontWeight: 500
-                    }}>
-                      {callState === 'idle' && 'READY'}
-                      {callState === 'connecting' && 'CONNECTING...'}
-                      {callState === 'ringing' && 'RINGING...'}
-                      {callState === 'connected' && `LIVE CALL (${formatDuration(callDuration)})`}
-                      {callState === 'ended' && 'CALL ENDED'}
+                    <h3 style={{ fontSize: '1.25rem', margin: 0 }}>
+                      {agent === 'real_estate' ? 'Yasmin (العقارات)' : 'Faris (القروض)'}
+                    </h3>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      {agent === 'real_estate' ? 'Dubai Property Advisor' : 'Dubai Mortgage Specialist'}
                     </p>
                   </div>
 
-                  {/* Waveform Visualization */}
-                  <div style={{
-                    width: '100%',
-                    height: '60px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '4px',
-                    margin: '1.5rem 0'
-                  }}>
-                    {Array.from({ length: 16 }).map((_, idx) => {
-                      let scaling = 'scaleY(0.15)';
-                      let color = 'rgba(255, 255, 255, 0.2)';
-                      
-                      if (callState === 'connected') {
-                        if (currentSpeaker === 'agent') {
-                          scaling = 'scaleY(1)';
-                          color = 'var(--primary)';
-                        } else if (currentSpeaker === 'user') {
-                          scaling = 'scaleY(0.7)';
-                          color = 'var(--secondary)';
-                        } else {
-                          scaling = 'scaleY(0.2)';
-                          color = 'rgba(255, 255, 255, 0.4)';
-                        }
-                      }
-                      
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', marginBottom: '1rem' }}>
+                    <button onClick={initiateCall} className="dial-call-btn">
+                      <Phone size={18} /> Call Agent (اتصال)
+                    </button>
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                      Ready to establish real-time phone connection
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* INCOMING CALL SCREEN */}
+              {callState === 'incoming' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '2rem 1.5rem', color: '#fff', background: '#0b132b' }}>
+                  <div style={{ textAlign: 'center', marginTop: '2rem' }}>
+                    <div className="ringing-animation" style={{
+                      width: '76px',
+                      height: '76px',
+                      borderRadius: '50%',
+                      background: 'linear-gradient(135deg, var(--secondary) 0%, var(--primary) 100%)',
+                      margin: '0 auto 1.2rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 0 25px var(--secondary-glow)'
+                    }}>
+                      <PhoneCall size={32} />
+                    </div>
+                    <h3 style={{ fontSize: '1.3rem', margin: 0 }}>
+                      {agent === 'real_estate' ? 'Yasmin Calling...' : 'Faris Calling...'}
+                    </h3>
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '5px' }}>
+                      INCOMING CALL (مكالمة واردة)
+                    </p>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-around', width: '100%', marginBottom: '1.5rem' }}>
+                    <button onClick={answerCall} className="phone-action-btn accept" title="Answer call">
+                      <Phone size={20} />
+                    </button>
+                    <button onClick={declineCall} className="phone-action-btn decline" title="Decline call">
+                      <PhoneOff size={20} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* CONNECTED STATE (Active Call Layout) */}
+              {callState === 'connected' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '1.5rem', color: '#fff' }}>
+                  
+                  {/* Top Call Info */}
+                  <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+                    <h4 style={{ fontSize: '1.2rem', margin: 0 }}>
+                      {agent === 'real_estate' ? 'Yasmin (العقارات)' : 'Faris (القروض)'}
+                    </h4>
+                    <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 'bold', display: 'block', marginTop: '3px' }}>
+                      CONNECTED ({Math.floor(callDuration / 60)}:{(callDuration % 60).toString().padStart(2, '0')})
+                    </span>
+                  </div>
+
+                  {/* ElevenLabs API failure error notice */}
+                  {ttsError && (
+                    <div style={{
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      border: '1px solid #ef4444',
+                      borderRadius: '8px',
+                      padding: '8px',
+                      fontSize: '0.7rem',
+                      color: '#f87171',
+                      textAlign: 'center',
+                      margin: '10px 0'
+                    }}>
+                      ⚠️ {ttsError}. (Using browser voice fallback)
+                    </div>
+                  )}
+
+                  {/* Dynamic audio waves */}
+                  <div style={{ display: 'flex', gap: '4px', height: '40px', alignItems: 'center', justifyContent: 'center' }}>
+                    {Array.from({ length: 14 }).map((_, idx) => {
+                      const isActive = isPlayingAudio || isListening;
                       return (
                         <div 
                           key={idx}
-                          className="wave-bar"
                           style={{
                             width: '4px',
                             height: '100%',
-                            backgroundColor: color,
+                            background: isPlayingAudio ? 'var(--primary)' : (isListening ? 'var(--secondary)' : 'rgba(255,255,255,0.2)'),
                             borderRadius: '2px',
-                            transform: scaling,
+                            transform: 'scaleY(0.15)',
                             transformOrigin: 'center',
-                            transition: 'transform 0.15s ease-in-out, background-color 0.15s ease-in-out',
-                            animation: callState === 'connected' && currentSpeaker !== 'silent'
-                              ? `wave 0.8s ease-in-out infinite alternate` 
-                              : 'none',
-                            animationDelay: `${idx * 0.05}s`
+                            animationName: isActive ? 'wavePulse' : 'none',
+                            animationDuration: '1s',
+                            animationTimingFunction: 'ease-in-out',
+                            animationIterationCount: 'infinite',
+                            animationDelay: isActive ? `${idx * 0.07}s` : '0s',
+                            transition: 'background 0.3s ease'
                           }}
                         />
                       );
                     })}
                   </div>
 
-                  {/* Scrolling Call Transcripts */}
-                  <div className="custom-scrollbar" style={{
-                    width: '100%',
-                    height: '140px',
-                    background: 'rgba(255, 255, 255, 0.03)',
-                    border: '1px solid rgba(255,255,255,0.06)',
-                    borderRadius: '12px',
-                    padding: '10px',
-                    overflowY: 'auto',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px'
-                  }}>
-                    {callTranscript.length === 0 ? (
-                      <div style={{ 
-                        fontSize: '0.8rem', 
-                        color: 'var(--text-muted)', 
-                        textAlign: 'center', 
-                        height: '100%', 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center' 
-                      }}>
-                        {callState === 'idle' ? 'Start call to display transcript.' : 'Dialing...'}
+                  {/* Active Call Controls */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
+                    
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                      {isPlayingAudio ? "🔊 Agent Speaking (Interrupt anytime by speaking)" : (isListening ? "🎙 Listening... Speak naturally!" : "Muted")}
+                    </span>
+
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', gap: '1.8rem', width: '100%', marginBottom: '0.5rem' }}>
+                      
+                      {/* Mute button container */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+                        <button 
+                          onClick={toggleMute}
+                          className={`circle-control-btn ${isMuted ? 'muted' : ''}`}
+                          title={isMuted ? "Unmute Mic" : "Mute Mic"}
+                        >
+                          {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
+                        </button>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Mute</span>
                       </div>
-                    ) : (
-                      callTranscript.map((t, idx) => (
-                        <div key={idx} style={{ fontSize: '0.8rem', lineHeight: '1.4' }}>
-                          <span style={{ 
-                            fontWeight: 'bold', 
-                            color: t.speaker === 'agent' ? 'var(--primary)' : 'var(--secondary)',
-                            marginRight: '5px'
-                          }}>
-                            {t.speaker === 'agent' ? 'Sarah (AI):' : 'You:'}
-                          </span>
-                          <span style={{ color: '#cbd5e1' }}>{t.text}</span>
-                        </div>
-                      ))
-                    )}
-                    <div ref={transcriptEndRef} />
+
+                      {/* Hang up call button container */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+                        <button onClick={endCall} className="circle-control-btn hangup" title="End Call">
+                          <PhoneOff size={20} />
+                        </button>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>End Call</span>
+                      </div>
+
+                      {/* Explicit speak barge in action container */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+                        <button 
+                          onClick={handleMicClick}
+                          className={`circle-control-btn ${isListening && !isMuted ? 'listening' : ''}`}
+                          title="Talk / Listen"
+                        >
+                          <Mic size={18} />
+                        </button>
+                        <span style={{ fontSize: '0.65rem', color: isListening ? 'var(--secondary)' : 'var(--text-muted)' }}>
+                          {isListening ? 'Listening' : 'Talk Now'}
+                        </span>
+                      </div>
+
+                    </div>
+
                   </div>
 
-                  {/* Hang-Up/Call Button */}
-                  <div style={{ marginTop: '1rem' }}>
-                    {callState === 'idle' || callState === 'ended' ? (
-                      <button 
-                        onClick={startCall}
-                        style={{
-                          width: '56px',
-                          height: '56px',
-                          borderRadius: '50%',
-                          background: '#10b981',
-                          border: 'none',
-                          color: '#fff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          boxShadow: '0 4px 15px rgba(16, 185, 129, 0.4)'
-                        }}
-                      >
-                        <Phone size={24} />
-                      </button>
-                    ) : (
-                      <button 
-                        onClick={stopCall}
-                        style={{
-                          width: '56px',
-                          height: '56px',
-                          borderRadius: '50%',
-                          background: '#ef4444',
-                          border: 'none',
-                          color: '#fff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          boxShadow: '0 4px 15px rgba(239, 68, 68, 0.4)'
-                        }}
-                      >
-                        <Phone size={24} style={{ transform: 'rotate(135deg)' }} />
-                      </button>
-                    )}
-                  </div>
                 </div>
+              )}
+
+              {/* CALL ENDED SCREEN */}
+              {callState === 'ended' && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', background: '#070a0e' }}>
+                  <PhoneOff size={36} style={{ color: '#ef4444', marginBottom: '10px' }} />
+                  <h4 style={{ margin: 0 }}>Call Disconnected</h4>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>Saving conversation log...</span>
+                </div>
+              )}
+
+            </div>
+
+            {/* Active chat transcript inside Phone panel for context */}
+            <div style={{ width: '100%', borderTop: '1px solid var(--border-glass)', marginTop: '1.5rem', paddingTop: '1rem', display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100px' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                LIVE TRANSCRIPT FEED
+              </span>
+              <div 
+                ref={chatContainerRef}
+                className="custom-scrollbar"
+                style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '0.75rem' }}
+              >
+                {messages.map((m, i) => (
+                  <div key={i} style={{ color: m.sender === 'user' ? '#94a3b8' : '#38bdf8' }}>
+                    <strong>{m.sender === 'user' ? 'You: ' : 'Agent: '}</strong>
+                    {m.text}
+                  </div>
+                ))}
+                {isTyping && <div style={{ color: 'var(--text-muted)' }}>Generating response...</div>}
+              </div>
+            </div>
+
+          </div>
+
+          {/* RIGHT COLUMN: Translation Desk & Database List */}
+          <div className="glass-panel" style={{ padding: '2rem', height: '620px', display: 'flex', flexDirection: 'column' }}>
+            
+            {/* Tabs */}
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border-glass)', marginBottom: '1.5rem', paddingBottom: '3px' }}>
+              <button 
+                className={`tab-btn ${activeRightTab === 'translation' ? 'active' : ''}`}
+                onClick={() => setActiveRightTab('translation')}
+              >
+                <Languages size={14} /> Dialect Translation Desk
+              </button>
+              
+              <button 
+                className={`tab-btn ${activeRightTab === 'database' ? 'active' : ''}`}
+                onClick={() => setActiveRightTab('database')}
+              >
+                <Database size={14} /> Database Explorer
+              </button>
+            </div>
+
+            {/* TAB CONTENT: TRANSLATION DESK */}
+            {activeRightTab === 'translation' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Dual-Language Realtime Translation Log
+                  </span>
+                  <span className="badge" style={{ fontSize: '0.65rem', padding: '2px 8px' }}>
+                    <ArrowRightLeft size={10} /> English ↔ Arabic
+                  </span>
+                </div>
+
+                <div 
+                  ref={translationContainerRef}
+                  className="custom-scrollbar" 
+                  style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}
+                >
+                  {messages.length <= 1 && (
+                    <div style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--text-muted)',
+                      textAlign: 'center',
+                      padding: '2rem',
+                      height: '100%'
+                    }}>
+                      <Languages size={32} style={{ opacity: 0.3, marginBottom: '8px' }} />
+                      <p style={{ fontSize: '0.8rem' }}>Translations will print side-by-side as soon as dialog starts.</p>
+                    </div>
+                  )}
+
+                  {messages.map((m, idx) => {
+                    const isArabic = m.detectedLang === 'ar';
+                    const translationText = isArabic 
+                      ? (m.translation?.user_translated || m.translation?.ai_translated || '')
+                      : (m.translation?.user_translated || m.translation?.ai_translated || '');
+
+                    if (idx === 0 && m.sender === 'agent' && !m.translation?.ai_translated) {
+                      return null;
+                    }
+
+                    return (
+                      <div key={idx} style={{
+                        background: 'rgba(255, 255, 255, 0.01)',
+                        border: '1px solid var(--border-glass)',
+                        borderRadius: '8px',
+                        padding: '12px'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: m.sender === 'user' ? 'var(--primary)' : 'var(--secondary)' }}>
+                            {m.sender === 'user' ? 'USER DIALOGUE' : 'AGENT DIALOGUE'}
+                          </span>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                            Origin: {isArabic ? 'Arabic (🇦🇪)' : 'English (🇺🇸)'}
+                          </span>
+                        </div>
+
+                        {/* Side by side display */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                          
+                          {/* Original */}
+                          <div style={{ borderRight: '1px solid rgba(255,255,255,0.05)', paddingRight: '10px' }}>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: '3px' }}>ORIGINAL</div>
+                            <div style={{ fontSize: '0.8rem', color: '#cbd5e1', whiteSpace: 'pre-line' }}>{m.text}</div>
+                          </div>
+
+                          {/* Translated */}
+                          <div>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--secondary)', marginBottom: '3px' }}>TRANSLATED</div>
+                            <div style={{ fontSize: '0.8rem', color: '#fff', fontStyle: 'italic', whiteSpace: 'pre-line' }}>
+                              {translationText || 'Translating...'}
+                            </div>
+                            {translationText && (
+                              <button 
+                                type="button"
+                                onClick={() => triggerTTS(translationText, isArabic ? 'en' : 'ar')}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'var(--primary)',
+                                  cursor: 'pointer',
+                                  fontSize: '0.65rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '2px',
+                                  marginTop: '5px'
+                                }}
+                              >
+                                <Volume2 size={10} /> Speak
+                              </button>
+                            )}
+                          </div>
+
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* TAB CONTENT: DATABASE EXPLORER */}
+            {activeRightTab === 'database' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                
+                {agent === 'loan' && loanCalculation && (
+                  <div style={{
+                    background: 'rgba(139, 92, 246, 0.08)',
+                    border: '1px solid rgba(139, 92, 246, 0.2)',
+                    borderRadius: '10px',
+                    padding: '1rem',
+                    marginBottom: '1rem',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '10px'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>MAX ELIGIBLE LOAN</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#10b981', fontFamily: 'var(--font-display)' }}>
+                        {formatCurrency(loanCalculation.max_eligible_loan)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>MONTHLY EMI</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff', fontFamily: 'var(--font-display)' }}>
+                        {formatCurrency(loanCalculation.monthly_emi)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>DEBT-TO-INCOME (DTI)</div>
+                      <div style={{ fontSize: '1rem', fontWeight: 700, color: loanCalculation.dti_ratio > 50 ? '#ef4444' : '#10b981' }}>
+                        {loanCalculation.dti_ratio}%
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>STATUS</div>
+                      <span style={{
+                        display: 'inline-block',
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        fontSize: '0.7rem',
+                        fontWeight: 'bold',
+                        width: 'fit-content',
+                        background: loanCalculation.status === 'Approved' ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)',
+                        color: loanCalculation.status === 'Approved' ? '#10b981' : '#ef4444'
+                      }}>
+                        {loanCalculation.status}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    {explorerData.length > 0
+                      ? `Filtered Matches (${explorerData.length})`
+                      : `Dubai Database Browser (${defaultData.length} records loaded)`
+                    }
+                  </span>
+                  
+                  {explorerData.length > 0 && (
+                    <button 
+                      onClick={clearFilters}
+                      style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid var(--border-glass)',
+                        borderRadius: '4px',
+                        padding: '2px 8px',
+                        fontSize: '0.7rem',
+                        color: 'var(--secondary)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Clear Search Filter
+                    </button>
+                  )}
+                </div>
+
+                {isLoadingDb && defaultData.length === 0 ? (
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Loader2 className="animate-spin" size={24} style={{ color: 'var(--secondary)' }} />
+                  </div>
+                ) : (
+                  <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {(explorerData.length > 0 ? explorerData : defaultData).map((item, idx) => {
+                      if (agent === 'real_estate') {
+                        return (
+                          <div key={idx} className="explorer-card">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                              <span style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#fff' }}>{item.type} in {item.area}</span>
+                              <span style={{ color: 'var(--secondary)', fontWeight: 700, fontSize: '0.85rem' }}>{formatCurrency(item.price)}</span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                              <div>Beds: <strong>{item.bedrooms}</strong></div>
+                              <div>Size: <strong>{item.size || item.Size_SqFt || '—'} sqft</strong></div>
+                              <div>Yield: <strong style={{ color: '#10b981' }}>{item.yield}%</strong></div>
+                              <div>Metro: <strong>{item.metro || 'N/A'}</strong></div>
+                              <div>Developer: <strong>{item.developer || 'N/A'}</strong></div>
+                              <div>ID: <strong>{item.id}</strong></div>
+                            </div>
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div key={idx} className="explorer-card" style={{ borderLeft: '3px solid #10b981' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                              <span style={{ fontWeight: 'bold', fontSize: '0.85rem', color: '#fff' }}>Customer ID: {item.Customer_ID}</span>
+                              <span style={{
+                                color: item.Loan_Approved === 'Yes' || item.Loan_Approved === 'Y' ? '#10b981' : '#ef4444',
+                                fontWeight: 800,
+                                fontSize: '0.7rem'
+                              }}>
+                                {item.Loan_Approved === 'Yes' || item.Loan_Approved === 'Y' ? 'APPROVED' : 'DECLINED'}
+                              </span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 10px', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                              <div>Nationality: <strong>{item.Nationality}</strong></div>
+                              <div>Salary: <strong>{formatCurrency(item.Monthly_Salary)}</strong></div>
+                              <div>Credit Score: <strong>{item.Credit_Score}</strong></div>
+                              <div>Monthly EMI: <strong>{formatCurrency(item.Monthly_EMI_AED)}</strong></div>
+                              <div>Age: <strong>{item.Age} yrs</strong></div>
+                            </div>
+                          </div>
+                        );
+                      }
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -694,42 +1323,206 @@ export const InteractivePlayground: React.FC = () => {
 
       </div>
 
-      {/* Styled JSX for Playground Animations & Button Details */}
       <style>{`
-        .scenario-btn {
-          background: rgba(255, 255, 255, 0.03);
-          border: 1px solid var(--border-glass);
+        .tab-btn {
+          flex: 1;
+          background: transparent;
+          border: none;
+          color: var(--text-secondary);
+          padding: 8px;
+          font-size: 0.85rem;
+          font-weight: 700;
+          cursor: pointer;
+          border-bottom: 2px solid transparent;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          transition: var(--transition-smooth);
+        }
+        .tab-btn:hover {
           color: var(--text-primary);
-          padding: 12px 16px;
-          border-radius: 10px;
+        }
+        .tab-btn.active {
+          color: var(--secondary);
+          border-bottom-color: var(--secondary);
+        }
+        .btn-sub-toggle {
+          background: transparent;
+          border: none;
+          color: var(--text-secondary);
+          padding: 6px 12px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          cursor: pointer;
+          border-radius: 6px;
+          transition: var(--transition-smooth);
+        }
+        .btn-sub-toggle:hover {
+          color: var(--text-primary);
+        }
+        .btn-sub-toggle.active {
+          background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+          color: #fff;
+          box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+        }
+        
+        /* Dialer Controls */
+        .dial-call-btn {
+          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+          color: #fff;
+          border: none;
+          border-radius: 9999px;
+          padding: 12px 24px;
+          font-family: var(--font-display);
+          font-weight: 800;
+          font-size: 1rem;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+          transition: var(--transition-bounce);
+        }
+        .dial-call-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 25px rgba(16, 185, 129, 0.5);
+        }
+        
+        .phone-action-btn {
+          width: 56px;
+          height: 56px;
+          border-radius: 50%;
+          border: none;
+          color: #fff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: var(--transition-bounce);
+        }
+        .phone-action-btn.accept {
+          background: #10b981;
+          box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+        }
+        .phone-action-btn.accept:hover {
+          transform: scale(1.1);
+        }
+        .phone-action-btn.decline {
+          background: #ef4444;
+          box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+        }
+        .phone-action-btn.decline:hover {
+          transform: scale(1.1);
+        }
+        
+        .circle-control-btn {
+          width: 48px;
+          height: 48px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid var(--border-glass);
+          color: #fff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
           cursor: pointer;
           transition: var(--transition-smooth);
         }
-        .scenario-btn:hover {
-          background: rgba(255, 255, 255, 0.07);
-          border-color: rgba(255, 255, 255, 0.2);
+        .circle-control-btn:hover {
+          background: rgba(255,255,255,0.12);
         }
-        .scenario-btn.active {
-          background: rgba(139, 92, 246, 0.15);
-          border-color: var(--primary);
-          box-shadow: 0 0 15px rgba(139, 92, 246, 0.1);
+        .circle-control-btn.hangup {
+          background: #ef4444;
+          border: none;
+          box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
         }
-        .dot-typing {
-          width: 6px;
-          height: 6px;
+        .circle-control-btn.hangup:hover {
+          transform: scale(1.05);
+        }
+        .circle-control-btn.muted {
+          background: rgba(239, 68, 68, 0.15);
+          border-color: #ef4444;
+          color: #ef4444;
+        }
+        .circle-control-btn.listening {
+          background: rgba(6, 182, 212, 0.15);
+          border-color: var(--secondary);
+          color: var(--secondary);
+          animation: btnPulse 1.5s infinite;
+        }
+        
+        .btn-mic-input {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 42px;
+          height: 42px;
+          border-radius: 8px;
+          background: rgba(255,255,255,0.03);
+          border: 1px solid var(--border-glass);
+          color: var(--text-secondary);
+          cursor: pointer;
+          transition: var(--transition-smooth);
+        }
+        .btn-mic-input:hover {
+          background: rgba(255,255,255,0.08);
+          color: var(--text-primary);
+        }
+        .btn-mic-input.active {
+          background: rgba(239, 68, 68, 0.15);
+          border-color: #ef4444;
+          color: #ef4444;
+          animation: micPulse 1.5s infinite;
+        }
+        
+        .ringing-animation {
+          animation: phoneShake 0.5s infinite;
+        }
+        .pulse-indicator {
+          width: 8px;
+          height: 8px;
           border-radius: 50%;
-          background-color: #8696a0;
+          background: #10b981;
           display: inline-block;
-          animation: dotPulse 1.2s infinite ease-in-out;
+          box-shadow: 0 0 8px #10b981;
+          animation: pulseGlow 1.5s infinite alternate;
         }
-        @keyframes dotPulse {
-          0%, 100% { transform: scale(0.6); opacity: 0.4; }
-          50% { transform: scale(1.2); opacity: 1; }
+        
+        .explorer-card {
+          background: rgba(255, 255, 255, 0.02);
+          border: 1px solid var(--border-glass);
+          border-radius: 8px;
+          padding: 12px;
+          transition: var(--transition-smooth);
         }
-        @keyframes pulse {
+        .explorer-card:hover {
+          background: rgba(255, 255, 255, 0.05);
+          border-color: rgba(255, 255, 255, 0.15);
+        }
+        @keyframes micPulse {
+          0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+          70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        @keyframes btnPulse {
           0% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4); }
-          70% { box-shadow: 0 0 0 15px rgba(6, 182, 212, 0); }
+          70% { box-shadow: 0 0 0 10px rgba(6, 182, 212, 0); }
           100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
+        }
+        @keyframes pulseGlow {
+          0% { transform: scale(0.8); opacity: 0.5; }
+          100% { transform: scale(1.3); opacity: 1; }
+        }
+        @keyframes phoneShake {
+          0%, 100% { transform: rotate(0); }
+          10%, 30%, 50%, 70%, 90% { transform: rotate(-10deg); }
+          20%, 40%, 60%, 80% { transform: rotate(10deg); }
+        }
+        @keyframes wavePulse {
+          0%, 100% { transform: scaleY(0.15); }
+          50% { transform: scaleY(1.0); }
         }
       `}</style>
     </section>
