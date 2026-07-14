@@ -333,8 +333,8 @@ export const InteractivePlayground: React.FC = () => {
   const getWelcomeMessage = (lang: 'en' | 'ar') => {
     if (agent === 'real_estate') {
       return lang === 'en'
-        ? "Hello! I am Yasmin, your Dubai real estate assistant. I can search properties live from our Dubai listings database. Ask me about properties in JLT, Downtown Dubai, or Dubai Hills Estate."
-        : "مرحباً بك! أنا ياسمين، مستشارتك العقارية في دبي. يمكنني البحث عن العقارات مباشرة من قاعدة بياناتنا. استفسر عن شقق في أبراج بحيرات جميرا، أو بنتهاوس في داون تاون دبي.";
+        ? "Hello! I am Raj, your Dubai real estate assistant. I can search properties live from our Dubai listings database. Ask me about properties in JLT, Downtown Dubai, or Dubai Hills Estate."
+        : "مرحباً بك! أنا راج، مستشارك العقاري في دبي. يمكنني البحث عن العقارات مباشرة من قاعدة بياناتنا. استفسر عن شقق في أبراج بحيرات جميرا، أو بنتهاوس في داون تاون دبي.";
     } else {
       return lang === 'en'
         ? "Hello! I am Faris, your Dubai mortgage loan agent. Provide your salary, credit score, liabilities, and age, and I will assess your loan eligibility and compute EMI."
@@ -715,7 +715,7 @@ export const InteractivePlayground: React.FC = () => {
                     className={`btn-sub-toggle ${agent === 'real_estate' ? 'active' : ''}`}
                     onClick={() => { setAgent('real_estate'); stopAudio(); }}
                   >
-                    🏡 Yasmin (Real Estate)
+                    🏡 Raj (Real Estate)
                   </button>
                   <button 
                     className={`btn-sub-toggle ${agent === 'loan' ? 'active' : ''}`}
@@ -870,7 +870,7 @@ export const InteractivePlayground: React.FC = () => {
                       {agent === 'real_estate' ? '🏡' : '🏦'}
                     </div>
                     <h3 style={{ fontSize: '1.25rem', margin: 0 }}>
-                      {agent === 'real_estate' ? 'Yasmin (العقارات)' : 'Faris (القروض)'}
+                      {agent === 'real_estate' ? 'Raj (العقارات)' : 'Faris (القروض)'}
                     </h3>
                     <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                       {agent === 'real_estate' ? 'Dubai Property Advisor' : 'Dubai Mortgage Specialist'}
@@ -906,7 +906,7 @@ export const InteractivePlayground: React.FC = () => {
                       <PhoneCall size={32} />
                     </div>
                     <h3 style={{ fontSize: '1.3rem', margin: 0 }}>
-                      {agent === 'real_estate' ? 'Yasmin Calling...' : 'Faris Calling...'}
+                      {agent === 'real_estate' ? 'Raj Calling...' : 'Faris Calling...'}
                     </h3>
                     <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '5px' }}>
                       INCOMING CALL (مكالمة واردة)
@@ -931,7 +931,7 @@ export const InteractivePlayground: React.FC = () => {
                   {/* Top Call Info */}
                   <div style={{ textAlign: 'center', marginTop: '1rem' }}>
                     <h4 style={{ fontSize: '1.2rem', margin: 0 }}>
-                      {agent === 'real_estate' ? 'Yasmin (العقارات)' : 'Faris (القروض)'}
+                      {agent === 'real_estate' ? 'Raj (العقارات)' : 'Faris (القروض)'}
                     </h4>
                     <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 'bold', display: 'block', marginTop: '3px' }}>
                       CONNECTED ({Math.floor(callDuration / 60)}:{(callDuration % 60).toString().padStart(2, '0')})
