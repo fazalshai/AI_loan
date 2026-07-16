@@ -91,6 +91,10 @@ export const InteractivePlayground: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const bargeInAllowedRef = useRef(true);
+  // Track when agent is actually speaking so we can mute the mic (prevents echo)
+  const isSpeakingRef = useRef(false);
+  // Track if greeting has been said — persists for entire call lifecycle
+  const isGreetedRef = useRef(false);
   
   const callStateRef = useRef(callState);
   const isPlayingAudioRef = useRef(isPlayingAudio);
@@ -293,14 +297,15 @@ export const InteractivePlayground: React.FC = () => {
         setIsListening(false);
       };
 
-      // Auto-restart loop when call is active
+      // Auto-restart loop when call is active — but NEVER while agent is speaking
       rec.onend = () => {
         setIsListening(false);
         setTimeout(() => {
           if (
             callStateRef.current === 'connected' && 
             !isMutedRef.current &&
-            !isTypingRef.current
+            !isTypingRef.current &&
+            !isSpeakingRef.current  // Do NOT restart while agent is speaking
           ) {
             try {
               rec.start();
@@ -378,12 +383,25 @@ export const InteractivePlayground: React.FC = () => {
       }, 1200);
     };
     
+    utterance.onstart = () => {
+      isSpeakingRef.current = true;  // Browser TTS: also stop mic
+      try { recognitionRef.current?.stop(); } catch(e) {}
+    };
+
     utterance.onend = () => {
       setIsPlayingAudio(false);
+      isSpeakingRef.current = false;
+      // Resume mic after browser TTS ends
+      setTimeout(() => {
+        if (callStateRef.current === 'connected' && !isMutedRef.current) {
+          try { recognitionRef.current?.start(); } catch(e) {}
+        }
+      }, 600);
     };
     
     utterance.onerror = () => {
       setIsPlayingAudio(false);
+      isSpeakingRef.current = false;
     };
 
     window.speechSynthesis.speak(utterance);
@@ -422,8 +440,11 @@ export const InteractivePlayground: React.FC = () => {
 
       audio.onplay = () => {
         setIsPlayingAudio(true);
-        setTtsError(null); // Clear errors
+        isSpeakingRef.current = true;  // Agent is now speaking — stop mic
+        setTtsError(null);
         bargeInAllowedRef.current = false;
+        // Mute the microphone while agent speaks to prevent echo
+        try { recognitionRef.current?.stop(); } catch(e) {}
         setTimeout(() => {
           bargeInAllowedRef.current = true;
         }, 1200);
@@ -431,6 +452,13 @@ export const InteractivePlayground: React.FC = () => {
 
       audio.onended = () => {
         setIsPlayingAudio(false);
+        isSpeakingRef.current = false;  // Agent finished — re-enable mic
+        // Resume listening after a short pause so echo doesn't get caught
+        setTimeout(() => {
+          if (callStateRef.current === 'connected' && !isMutedRef.current) {
+            try { recognitionRef.current?.start(); } catch(e) {}
+          }
+        }, 600);
       };
 
       audio.onerror = () => {
