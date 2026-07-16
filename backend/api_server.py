@@ -323,7 +323,7 @@ def chat():
     
     # Check if the welcome/greeting is already done
     is_greeted = CALL_SESSIONS[agent]["greeting_done"]
-    if len(history) >= 1: # If history contains even 1 message (the welcome), greeting is complete
+    if len(history) >= 1 or len(message.strip()) > 0: # If history contains even 1 message OR user has spoken
         CALL_SESSIONS[agent]["greeting_done"] = True
         is_greeted = True
         

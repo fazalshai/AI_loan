@@ -498,7 +498,15 @@ export const InteractivePlayground: React.FC = () => {
         speakBrowser(text, speakLang);
       };
 
-      await audio.play();
+      try {
+        await audio.play();
+      } catch (err: any) {
+        if (err.name === 'AbortError' || err.message?.includes('interrupted') || err.message?.includes('pause')) {
+          console.log("Audio play was interrupted intentionally by a call to pause().");
+          return;
+        }
+        throw err;
+      }
 
     } catch (e: any) {
       console.warn("ElevenLabs failed, falling back to browser voice:", e);
@@ -708,8 +716,14 @@ export const InteractivePlayground: React.FC = () => {
     }
     
     // Start greeting immediately (plays streaming audio)
-    const lastMsg = messages[messages.length - 1];
-    triggerTTS(lastMsg?.text || getWelcomeMessage(activeLanguage), lastMsg?.detectedLang || activeLanguage);
+    const welcomeText = getWelcomeMessage(activeLanguage);
+    const welcomeMsg: ChatMessage = {
+      sender: 'agent',
+      text: welcomeText,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setMessages([welcomeMsg]);
+    triggerTTS(welcomeText, activeLanguage);
   };
 
   const declineCall = (e: React.MouseEvent) => {
