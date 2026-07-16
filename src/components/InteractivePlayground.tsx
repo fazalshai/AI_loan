@@ -454,25 +454,9 @@ export const InteractivePlayground: React.FC = () => {
         audioRef.current.pause();
       }
 
-      const response = await fetch(`${cleanBackendUrl}/api/tts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          text,
-          voice_id: selectedVoice,
-          api_key: xiApiKey // Pass UI input key, backend will fall back to .env if empty
-        })
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.detail?.message || "ElevenLabs synthesis failed.");
-      }
-
-      const blob = await response.blob();
-      const audioUrl = URL.createObjectURL(blob);
+      // Stream directly from backend via GET to bypass CORS preflight and AdBlockers
+      const encodedText = encodeURIComponent(text);
+      const audioUrl = `${cleanBackendUrl}/api/tts?text=${encodedText}&voice_id=${selectedVoice}`;
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
 
