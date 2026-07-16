@@ -654,5 +654,129 @@ def tts():
         return jsonify({"error": f"Failed to connect to ElevenLabs: {str(e)}"}), 500
 
 
+@app.route("/api/analyze-call", methods=["POST"])
+def analyze_call():
+    """
+    Saves the complete conversation history of a call and applies Gemini
+    to analyze/classify the client as a Legit Client or a Time Waster.
+    Saves to completed_sessions.json.
+    """
+    data = request.json or {}
+    agent_type = data.get("agent", "real_estate")
+    duration = data.get("duration", 0)
+    history = data.get("history", [])
+
+    # Format transcript text
+    transcript_lines = []
+    for m in history:
+        sender_label = "Agent (Raj)" if agent_type == "real_estate" else "Agent (Faris)"
+        if m.get("sender") == "user":
+            sender_label = "User"
+        transcript_lines.append(f"{sender_label}: {m.get('text', '')}")
+    transcript_text = "\n".join(transcript_lines)
+
+    agent_name = "Raj (Dubai Real Estate Advisor)" if agent_type == "real_estate" else "Faris (Dubai Mortgage Specialist)"
+
+    analysis_prompt = f"""
+You are an expert sales manager, customer relationship manager, and lead qualification specialist for a premium Dubai real estate and mortgage consultancy.
+Analyze the following phone conversation transcript between a real-estate/mortgage assistant ({agent_name}) and a caller.
+
+Call Context:
+- Agent Type: {agent_type}
+- Call Duration: {duration} seconds
+
+Conversation Transcript:
+{transcript_text}
+
+Analyze the user's intent and classify them into one of these categories:
+- "Legit Client": The user shows serious interest. Signs include: mentioning a real budget (e.g. 1 million AED, 800k), specifying property types (apartment, villa, townhouse), asking about locations in Dubai (JLT, Downtown Dubai, Dubai Hills, etc.), responsive to questions, asking about mortgage options/yields, or seeking genuine help.
+- "Time Waster": The user is playing around, testing the system instructions, making jokes, claiming unrealistic budgets (e.g. "1 dirham"), repeating the same greetings without any query, or refusing to interact.
+
+Extract details:
+- budget: The budget mentioned by the user (or "Not specified")
+- location_preferences: List of areas in Dubai mentioned by the user
+- property_type: Type of property they want (apartment, villa, townhouse, etc. or "Not specified")
+- loan_viability: If mortgage agent, details on salary/viability. If real estate, details on whether they need a loan.
+
+Return your response EXACTLY as a JSON object with this structure:
+{{
+  "classification": "Legit Client" | "Time Waster",
+  "confidence_score": 0.0 to 1.0,
+  "executive_summary": "A 1-2 sentence overview of the conversation and caller's intent.",
+  "extracted_information": {{
+    "budget": "...",
+    "location_preferences": ["...", "..."],
+    "property_type": "...",
+    "loan_viability": "..."
+  }},
+  "suggested_next_steps": "A clear action item for the sales team."
+}}
+"""
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                {"role": "user", "parts": [{"text": analysis_prompt}]}
+            ],
+            config={
+                "response_mime_type": "application/json"
+            }
+        )
+        
+        analysis_result = json.loads(response.text)
+    except Exception as e:
+        print("[ANALYZE] Gemini/JSON error:", e)
+        analysis_result = {
+            "classification": "Legit Client" if len(history) > 3 else "Time Waster",
+            "confidence_score": 0.5,
+            "executive_summary": f"Could not perform LLM analysis due to error: {str(e)}",
+            "extracted_information": {
+                "budget": "Not specified",
+                "location_preferences": [],
+                "property_type": "Not specified",
+                "loan_viability": "Not specified"
+            },
+            "suggested_next_steps": "Review transcript manually."
+        }
+
+    # Save to completed_sessions.json
+    sessions_path = "/Users/fazal/Documents/team/backend/completed_sessions.json"
+    session_entry = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "agent": agent_type,
+        "duration_seconds": duration,
+        "transcript": transcript_lines,
+        "analysis": analysis_result
+    }
+
+    sessions = []
+    if os.path.exists(sessions_path):
+        try:
+            with open(sessions_path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content:
+                    sessions = json.loads(content)
+                    if not isinstance(sessions, list):
+                        sessions = []
+        except Exception as e:
+            print("[ANALYZE] Error reading sessions file:", e)
+
+    sessions.append(session_entry)
+
+    try:
+        with open(sessions_path, "w", encoding="utf-8") as f:
+            json.dump(sessions, f, indent=2, ensure_ascii=False)
+        print(f"[ANALYZE] Saved session to {sessions_path}")
+    except Exception as e:
+        print("[ANALYZE] Error saving session file:", e)
+
+    return jsonify({
+        "status": "success",
+        "analysis": analysis_result
+    })
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)
+

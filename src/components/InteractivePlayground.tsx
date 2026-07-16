@@ -58,7 +58,9 @@ export const InteractivePlayground: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
 
   // Tabs on the right side
-  const [activeRightTab, setActiveRightTab] = useState<'translation' | 'database'>('translation');
+  const [activeRightTab, setActiveRightTab] = useState<'translation' | 'database' | 'analysis'>('translation');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<any | null>(null);
 
   // Audio / TTS States
   const [synthType, setSynthType] = useState<'elevenlabs'>('elevenlabs'); // Default to ElevenLabs
@@ -704,6 +706,7 @@ export const InteractivePlayground: React.FC = () => {
   // Ringing Call Flow
   const initiateCall = (e: React.MouseEvent) => {
     e.preventDefault();
+    resetChat(); // Reset conversation to start fresh
     setCallState('incoming');
     playRingtone();
   };
@@ -740,10 +743,44 @@ export const InteractivePlayground: React.FC = () => {
     setCallState('idle');
   };
 
-  const endCall = (e: React.MouseEvent) => {
+  const endCall = async (e: React.MouseEvent) => {
     e.preventDefault();
     setCallState('ended');
     stopAudio();
+
+    const callHistory = [...messages];
+    const duration = callDuration;
+
+    // Immediately trigger backend call analysis
+    if (callHistory.length > 1) {
+      setActiveRightTab('analysis');
+      setIsAnalyzing(true);
+      setAnalysisResult(null);
+      try {
+        const response = await fetch('/api/analyze-call', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            agent,
+            duration,
+            history: callHistory
+          })
+        });
+        if (response.ok) {
+          const resData = await response.json();
+          if (resData.analysis) {
+            setAnalysisResult(resData.analysis);
+          }
+        }
+      } catch (err) {
+        console.error("Error analyzing call:", err);
+      } finally {
+        setIsAnalyzing(false);
+      }
+    }
+
     setTimeout(() => {
       setCallState('idle');
     }, 1200);
@@ -1165,6 +1202,13 @@ export const InteractivePlayground: React.FC = () => {
               >
                 <Database size={14} /> Database Explorer
               </button>
+
+              <button 
+                className={`tab-btn ${activeRightTab === 'analysis' ? 'active' : ''}`}
+                onClick={() => setActiveRightTab('analysis')}
+              >
+                <Sparkles size={14} /> Lead Analyzer
+              </button>
             </div>
 
             {/* TAB CONTENT: TRANSLATION DESK */}
@@ -1397,6 +1441,132 @@ export const InteractivePlayground: React.FC = () => {
                       }
                     })}
                   </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB CONTENT: LEAD ANALYZER */}
+            {activeRightTab === 'analysis' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                
+                {/* 1. Loading state */}
+                {isAnalyzing ? (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '15px' }}>
+                    <Loader2 className="animate-spin" size={32} style={{ color: 'var(--secondary)' }} />
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>AI analyzing lead details...</span>
+                  </div>
+                ) : (
+                  <>
+                    {/* 2. Empty state / no analysis yet */}
+                    {!analysisResult ? (
+                      <div style={{
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--text-muted)',
+                        textAlign: 'center',
+                        padding: '2rem'
+                      }}>
+                        <Sparkles size={36} style={{ opacity: 0.3, marginBottom: '10px', color: 'var(--secondary)' }} />
+                        <h5 style={{ color: '#fff', fontSize: '0.9rem', marginBottom: '5px' }}>Lead Qualifier Offline</h5>
+                        <p style={{ fontSize: '0.75rem', maxWidth: '300px', margin: '0 auto' }}>
+                          AI will classify caller viability, extract requirements, and suggest next steps once a conversation is finished.
+                        </p>
+                      </div>
+                    ) : (
+                      /* 3. Analysis Dashboard */
+                      <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px', paddingRight: '5px' }}>
+                        
+                        {/* Summary Header */}
+                        <div style={{
+                          background: 'rgba(255, 255, 255, 0.02)',
+                          border: '1px solid var(--border-glass)',
+                          borderRadius: '12px',
+                          padding: '1.2rem',
+                          position: 'relative',
+                          overflow: 'hidden'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)' }}>LEAD CLASSIFICATION</span>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                              Confidence: <strong>{(analysisResult.confidence_score * 100).toFixed(0)}%</strong>
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                            <span style={{
+                              fontSize: '1.1rem',
+                              fontWeight: 900,
+                              background: analysisResult.classification === 'Legit Client' 
+                                ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                                : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                              WebkitBackgroundClip: 'text',
+                              WebkitTextFillColor: 'transparent',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px'
+                            }}>
+                              {analysisResult.classification === 'Legit Client' ? <UserCheck size={18} style={{ color: '#10b981' }} /> : <XCircle size={18} style={{ color: '#ef4444' }} />}
+                              {analysisResult.classification}
+                            </span>
+                          </div>
+
+                          <p style={{ fontSize: '0.8rem', color: '#cbd5e1', lineHeight: '1.4', margin: 0 }}>
+                            {analysisResult.executive_summary}
+                          </p>
+                        </div>
+
+                        {/* Extracted Specifications Grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                          <div className="explorer-card" style={{ margin: 0, padding: '10px 12px' }}>
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>BUDGET</span>
+                            <strong style={{ fontSize: '0.85rem', color: '#fff' }}>{analysisResult.extracted_information?.budget || 'Not specified'}</strong>
+                          </div>
+
+                          <div className="explorer-card" style={{ margin: 0, padding: '10px 12px' }}>
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>PROPERTY TYPE</span>
+                            <strong style={{ fontSize: '0.85rem', color: '#fff' }}>{analysisResult.extracted_information?.property_type || 'Not specified'}</strong>
+                          </div>
+
+                          <div className="explorer-card" style={{ margin: 0, padding: '10px 12px', gridColumn: 'span 2' }}>
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>LOCATION PREFERENCES</span>
+                            <strong style={{ fontSize: '0.85rem', color: '#fff' }}>
+                              {Array.isArray(analysisResult.extracted_information?.location_preferences) && analysisResult.extracted_information.location_preferences.length > 0
+                                ? analysisResult.extracted_information.location_preferences.join(', ')
+                                : 'Not specified'
+                              }
+                            </strong>
+                          </div>
+
+                          <div className="explorer-card" style={{ margin: 0, padding: '10px 12px', gridColumn: 'span 2' }}>
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>FINANCIAL / LOAN DETAILS</span>
+                            <strong style={{ fontSize: '0.8rem', color: '#cbd5e1', fontWeight: 500 }}>
+                              {analysisResult.extracted_information?.loan_viability || 'Not specified'}
+                            </strong>
+                          </div>
+                        </div>
+
+                        {/* Next Action Actionable Card */}
+                        <div style={{
+                          background: 'rgba(139, 92, 246, 0.05)',
+                          border: '1px solid rgba(139, 92, 246, 0.15)',
+                          borderRadius: '12px',
+                          padding: '1rem',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '6px'
+                        }}>
+                          <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--secondary)', letterSpacing: '0.5px' }}>RECOMMENDED NEXT ACTION</span>
+                          <p style={{ fontSize: '0.8rem', color: '#fff', fontWeight: 600, margin: 0 }}>
+                            {analysisResult.suggested_next_steps}
+                          </p>
+                        </div>
+
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
