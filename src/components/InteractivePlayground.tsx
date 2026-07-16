@@ -91,10 +91,14 @@ export const InteractivePlayground: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const bargeInAllowedRef = useRef(true);
-  // Track when agent is actually speaking so we can mute the mic (prevents echo)
+  // Tracks whether agent is currently speaking (for echo detection)
   const isSpeakingRef = useRef(false);
-  // Track if greeting has been said — persists for entire call lifecycle
+  // Greeting persists for entire call lifecycle
   const isGreetedRef = useRef(false);
+  // Stores the exact text the agent is saying RIGHT NOW — used for echo fingerprinting
+  const currentAgentSpeechRef = useRef<string>("");
+  // Hard suppression window at start of agent speech (ms) — mic is fully off
+  const echoSuppressUntilRef = useRef<number>(0);
   
   const callStateRef = useRef(callState);
   const isPlayingAudioRef = useRef(isPlayingAudio);
@@ -264,14 +268,45 @@ export const InteractivePlayground: React.FC = () => {
           }
         }
 
-        const combinedText = (interimTranscript.trim() || finalTranscript.trim()).toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g,"").trim();
+        const normalize = (t: string) =>
+          t.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").trim();
 
-        // Barge-in: If user speaks anything while the agent is talking or thinking, interrupt!
-        // Ignore tiny background noise / static loops (requires length >= 4 characters to trigger barge-in)
+        const combinedText = normalize(interimTranscript.trim() || finalTranscript.trim());
+        const cleanFinal = normalize(finalTranscript.trim());
+
+        // ── ECHO FINGERPRINT CHECK ──────────────────────────────────────────
+        // During agent speech: check if what the mic hears is the agent's own
+        // voice echoing back. Compute word-overlap between mic text and agent text.
+        // High overlap = echo → discard. Low overlap = real human → barge-in.
+        if (isSpeakingRef.current && combinedText.length >= 3) {
+          // Hard suppression window at start of speech (first 800ms) — echo is
+          // strongest then, ignore everything to be safe.
+          if (Date.now() < echoSuppressUntilRef.current) {
+            console.log("[Echo suppressor] Hard window active, discarding:", combinedText);
+            return;
+          }
+
+          // Word-overlap similarity between mic input and agent speech
+          const agentWords = new Set(normalize(currentAgentSpeechRef.current).split(/\s+/).filter(w => w.length > 2));
+          const micWords = combinedText.split(/\s+/).filter((w: string) => w.length > 2);
+          const matchCount = micWords.filter((w: string) => agentWords.has(w)).length;
+          const similarity = micWords.length > 0 ? matchCount / micWords.length : 0;
+
+          if (similarity >= 0.45) {
+            // ≥45% word overlap → very likely echo of agent's own voice, discard
+            console.log(`[Echo suppressor] Echo detected (similarity=${(similarity*100).toFixed(0)}%), discarding:`, combinedText);
+            return;
+          }
+          // Low similarity → genuine human interruption → barge-in immediately
+          console.log(`[Barge-in] REAL human interruption detected (similarity=${(similarity*100).toFixed(0)}%):`, combinedText);
+        }
+        // ────────────────────────────────────────────────────────────────────
+
+        // Barge-in: stop agent and cancel pending API call immediately
         if (combinedText.length >= 4 && (isPlayingAudioRef.current || isTypingRef.current) && bargeInAllowedRef.current) {
           const IGNORE_BARGE_IN = new Set(["hi", "hello", "hmm", "uh", "this", "this is", "مرحبا", "أهلاً"]);
           if (!IGNORE_BARGE_IN.has(combinedText)) {
-            console.log("Interruption detected! Stopping audio and cancelling request. Text:", combinedText);
+            console.log("[Barge-in] Interrupting agent. Text:", combinedText);
             stopAudio();
             if (abortControllerRef.current) {
               abortControllerRef.current.abort();
@@ -281,14 +316,16 @@ export const InteractivePlayground: React.FC = () => {
           }
         }
 
-        const cleanFinal = finalTranscript.trim().toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g,"").trim();
-        if (cleanFinal.length >= 3) {
+        // Only process final clean transcripts as actual messages
+        if (cleanFinal.length >= 3 && !isSpeakingRef.current) {
           const IGNORE_FILLERS = new Set(["hi", "hello", "hmm", "uh", "this", "this is", "مرحبا", "أهلاً", "نعم", "yes", "no", "لا"]);
           if (!IGNORE_FILLERS.has(cleanFinal)) {
             submitMessage(finalTranscript);
           } else {
-            console.log("Ignored filler transcript noise in browser STT:", finalTranscript);
+            console.log("[STT] Ignored filler:", finalTranscript);
           }
+        } else if (cleanFinal.length >= 3 && !isSpeakingRef.current) {
+          submitMessage(finalTranscript);
         }
       };
 
@@ -297,21 +334,20 @@ export const InteractivePlayground: React.FC = () => {
         setIsListening(false);
       };
 
-      // Auto-restart loop when call is active — but NEVER while agent is speaking
+      // Auto-restart loop — keep mic alive at all times (even during agent speech)
+      // so the user can interrupt naturally. Echo filtering happens in onresult.
       rec.onend = () => {
         setIsListening(false);
         setTimeout(() => {
           if (
             callStateRef.current === 'connected' && 
-            !isMutedRef.current &&
-            !isTypingRef.current &&
-            !isSpeakingRef.current  // Do NOT restart while agent is speaking
+            !isMutedRef.current
           ) {
             try {
               rec.start();
             } catch (e) {}
           }
-        }, 400);
+        }, 300);
       };
 
       recognitionRef.current = rec;
@@ -384,24 +420,32 @@ export const InteractivePlayground: React.FC = () => {
     };
     
     utterance.onstart = () => {
-      isSpeakingRef.current = true;  // Browser TTS: also stop mic
-      try { recognitionRef.current?.stop(); } catch(e) {}
+      isSpeakingRef.current = true;
+      // Hard suppress echo for first 800ms of browser TTS too
+      echoSuppressUntilRef.current = Date.now() + 800;
+      bargeInAllowedRef.current = false;
+      setTimeout(() => { bargeInAllowedRef.current = true; }, 900);
+      // Keep mic alive so user can interrupt — echo fingerprinting handles filtering
+      try { recognitionRef.current?.start(); } catch(e) {}
     };
 
     utterance.onend = () => {
       setIsPlayingAudio(false);
       isSpeakingRef.current = false;
-      // Resume mic after browser TTS ends
+      currentAgentSpeechRef.current = "";
+      // Mic reset after agent finishes
       setTimeout(() => {
         if (callStateRef.current === 'connected' && !isMutedRef.current) {
-          try { recognitionRef.current?.start(); } catch(e) {}
+          try { recognitionRef.current?.stop(); } catch(e) {}
+          setTimeout(() => { try { recognitionRef.current?.start(); } catch(e) {} }, 200);
         }
-      }, 600);
+      }, 100);
     };
     
     utterance.onerror = () => {
       setIsPlayingAudio(false);
       isSpeakingRef.current = false;
+      currentAgentSpeechRef.current = "";
     };
 
     window.speechSynthesis.speak(utterance);
@@ -440,25 +484,34 @@ export const InteractivePlayground: React.FC = () => {
 
       audio.onplay = () => {
         setIsPlayingAudio(true);
-        isSpeakingRef.current = true;  // Agent is now speaking — stop mic
+        isSpeakingRef.current = true;
         setTtsError(null);
+        // Hard suppression: first 800ms after audio starts, fully block mic input
+        // (echo is strongest at audio onset). After that, echo fingerprinting takes over.
+        echoSuppressUntilRef.current = Date.now() + 800;
         bargeInAllowedRef.current = false;
-        // Mute the microphone while agent speaks to prevent echo
-        try { recognitionRef.current?.stop(); } catch(e) {}
         setTimeout(() => {
           bargeInAllowedRef.current = true;
-        }, 1200);
+        }, 900);
+        // Keep mic running — don't stop it — user must be able to interrupt at any time
+        // (echo filtering in onresult handles distinguishing user vs echo)
+        if (!recognitionRef.current) return;
+        try { recognitionRef.current.start(); } catch(e) {}
       };
 
       audio.onended = () => {
         setIsPlayingAudio(false);
-        isSpeakingRef.current = false;  // Agent finished — re-enable mic
-        // Resume listening after a short pause so echo doesn't get caught
+        isSpeakingRef.current = false;
+        currentAgentSpeechRef.current = "";  // Clear echo fingerprint
+        // Give mic a brief reset after agent finishes — cleanly capture user's next turn
         setTimeout(() => {
           if (callStateRef.current === 'connected' && !isMutedRef.current) {
-            try { recognitionRef.current?.start(); } catch(e) {}
+            try { recognitionRef.current?.stop(); } catch(e) {}
+            setTimeout(() => {
+              try { recognitionRef.current?.start(); } catch(e) {}
+            }, 200);
           }
-        }, 600);
+        }, 100);
       };
 
       audio.onerror = () => {
@@ -481,6 +534,9 @@ export const InteractivePlayground: React.FC = () => {
       setIsPlayingAudio(false);
       return;
     }
+    // Store what the agent is about to say — used by echo fingerprinting in onresult
+    // so the mic can stay open but still distinguish echo from real user speech
+    currentAgentSpeechRef.current = text;
     if (synthType === 'elevenlabs') {
       speakElevenLabs(text, speakLang);
     } else {
