@@ -51,6 +51,7 @@ export const InteractivePlayground: React.FC = () => {
   
   // Flask Backend API URL for production split hosting
   const [backendUrl, setBackendUrl] = useState(() => localStorage.getItem('backend_api_url') || '');
+  const cleanBackendUrl = backendUrl.trim().replace(/\/+$/, '');
   
   // Microphone & Speech Loops
   const [isListening, setIsListening] = useState(false);
@@ -169,7 +170,7 @@ export const InteractivePlayground: React.FC = () => {
   const loadSpreadsheetRows = async () => {
     setIsLoadingDb(true);
     try {
-      const response = await fetch(`${backendUrl}/api/data?agent=${agent}`);
+      const response = await fetch(`${cleanBackendUrl}/api/data?agent=${agent}`);
       const result = await response.json();
       if (result.data) {
         setDefaultData(result.data);
@@ -453,7 +454,7 @@ export const InteractivePlayground: React.FC = () => {
         audioRef.current.pause();
       }
 
-      const response = await fetch(`${backendUrl}/api/tts`, {
+      const response = await fetch(`${cleanBackendUrl}/api/tts`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -593,7 +594,7 @@ export const InteractivePlayground: React.FC = () => {
         payload.language = languageMode;
       }
 
-      const response = await fetch(`${backendUrl}/api/chat`, {
+      const response = await fetch(`${cleanBackendUrl}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -747,7 +748,7 @@ export const InteractivePlayground: React.FC = () => {
       setIsAnalyzing(true);
       setAnalysisResult(null);
       try {
-        const response = await fetch(`${backendUrl}/api/analyze-call`, {
+        const response = await fetch(`${cleanBackendUrl}/api/analyze-call`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
