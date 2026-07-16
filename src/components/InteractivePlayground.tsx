@@ -1,21 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  MessageSquare, 
   Phone, 
-  Send, 
-  CheckCheck, 
   Volume2, 
   Mic, 
   MicOff, 
   Sparkles, 
-  Globe, 
   Database,
-  Calculator,
   Loader2,
-  Lock,
-  ChevronRight,
-  TrendingUp,
-  Building,
   Languages,
   ArrowRightLeft,
   XCircle,
@@ -39,22 +30,12 @@ interface ChatMessage {
   data?: any;
 }
 
-const ELEVENLABS_VOICES = {
-  en: [
-    { name: 'Raj Multilingual (Premium)', id: 'wJ5MX7uuKXZwFqGdWM4N' }
-  ],
-  ar: [
-    { name: 'Raj Multilingual (Premium)', id: 'wJ5MX7uuKXZwFqGdWM4N' }
-  ]
-};
-
 export const InteractivePlayground: React.FC = () => {
   const [agent, setAgent] = useState<'real_estate' | 'loan'>('real_estate');
   const [languageMode, setLanguageMode] = useState<'auto' | 'en' | 'ar'>('auto');
   const [activeLanguage, setActiveLanguage] = useState<'en' | 'ar'>('en');
   
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
 
   // Tabs on the right side
@@ -63,10 +44,13 @@ export const InteractivePlayground: React.FC = () => {
   const [analysisResult, setAnalysisResult] = useState<any | null>(null);
 
   // Audio / TTS States
-  const [synthType, setSynthType] = useState<'elevenlabs'>('elevenlabs'); // Default to ElevenLabs
+  const [synthType] = useState<'elevenlabs'>('elevenlabs'); // Default to ElevenLabs
   const [xiApiKey, setXiApiKey] = useState(() => localStorage.getItem('elevenlabs_api_key') || '');
-  const [selectedVoice, setSelectedVoice] = useState('wJ5MX7uuKXZwFqGdWM4N'); // Default to custom voice
+  const [selectedVoice] = useState('wJ5MX7uuKXZwFqGdWM4N'); // Default to custom voice
   const [ttsError, setTtsError] = useState<string | null>(null);
+  
+  // Flask Backend API URL for production split hosting
+  const [backendUrl, setBackendUrl] = useState(() => localStorage.getItem('backend_api_url') || '');
   
   // Microphone & Speech Loops
   const [isListening, setIsListening] = useState(false);
@@ -95,8 +79,6 @@ export const InteractivePlayground: React.FC = () => {
   const bargeInAllowedRef = useRef(true);
   // Tracks whether agent is currently speaking (for echo detection)
   const isSpeakingRef = useRef(false);
-  // Greeting persists for entire call lifecycle
-  const isGreetedRef = useRef(false);
   // Stores the exact text the agent is saying RIGHT NOW — used for echo fingerprinting
   const currentAgentSpeechRef = useRef<string>("");
   // Hard suppression window at start of agent speech (ms) — mic is fully off
@@ -154,6 +136,15 @@ export const InteractivePlayground: React.FC = () => {
     }
   }, [xiApiKey]);
 
+  // Keep backend url in LocalStorage
+  useEffect(() => {
+    if (backendUrl) {
+      localStorage.setItem('backend_api_url', backendUrl);
+    } else {
+      localStorage.removeItem('backend_api_url');
+    }
+  }, [backendUrl]);
+
 
 
   // Call Duration Timer
@@ -178,7 +169,7 @@ export const InteractivePlayground: React.FC = () => {
   const loadSpreadsheetRows = async () => {
     setIsLoadingDb(true);
     try {
-      const response = await fetch(`/api/data?agent=${agent}`);
+      const response = await fetch(`${backendUrl}/api/data?agent=${agent}`);
       const result = await response.json();
       if (result.data) {
         setDefaultData(result.data);
@@ -462,7 +453,7 @@ export const InteractivePlayground: React.FC = () => {
         audioRef.current.pause();
       }
 
-      const response = await fetch('/api/tts', {
+      const response = await fetch(`${backendUrl}/api/tts`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -588,7 +579,6 @@ export const InteractivePlayground: React.FC = () => {
     };
 
     setMessages(prev => [...prev, userMsg]);
-    setInputValue('');
     setIsTyping(true);
 
     try {
@@ -603,7 +593,7 @@ export const InteractivePlayground: React.FC = () => {
         payload.language = languageMode;
       }
 
-      const response = await fetch('/api/chat', {
+      const response = await fetch(`${backendUrl}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -757,7 +747,7 @@ export const InteractivePlayground: React.FC = () => {
       setIsAnalyzing(true);
       setAnalysisResult(null);
       try {
-        const response = await fetch('/api/analyze-call', {
+        const response = await fetch(`${backendUrl}/api/analyze-call`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -919,6 +909,29 @@ export const InteractivePlayground: React.FC = () => {
                   <span>Raj Multilingual Active</span>
                 </div>
               </div>
+            </div>
+
+            {/* Flask Backend API URL Panel */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', flexGrow: 1, maxWidth: '420px' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                🌐 PRODUCTION BACKEND API URL
+              </span>
+              <input 
+                type="text" 
+                value={backendUrl}
+                onChange={(e) => setBackendUrl(e.target.value)}
+                placeholder="e.g. https://dubai-advisor.onrender.com (empty for local)"
+                style={{
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid var(--border-glass)',
+                  borderRadius: '6px',
+                  padding: '6px 12px',
+                  color: '#fff',
+                  fontSize: '0.8rem',
+                  outline: 'none',
+                  transition: 'var(--transition-smooth)'
+                }}
+              />
             </div>
 
           </div>

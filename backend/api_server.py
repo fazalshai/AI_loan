@@ -27,9 +27,16 @@ if not gemini_key:
 
 client = genai.Client(api_key=gemini_key)
 
-# Excel Data Paths
-REAL_ESTATE_PATH = "/Users/fazal/Documents/team/Dubai_Real_Estate_Synthetic_200.xlsx"
-LOAN_PATH = "/Users/fazal/Documents/team/Dubai_Loan_Assistance_Synthetic_200.xlsx"
+# Excel Data Paths (Resolve relative to current file to be completely portable)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+REAL_ESTATE_PATH = os.path.join(BASE_DIR, "Dubai_Real_Estate_Synthetic_200.xlsx")
+LOAN_PATH = os.path.join(BASE_DIR, "Dubai_Loan_Assistance_Synthetic_200.xlsx")
+
+# Fallback to parent directory if spreadsheets are in root
+if not os.path.exists(REAL_ESTATE_PATH):
+    REAL_ESTATE_PATH = os.path.join(os.path.dirname(BASE_DIR), "Dubai_Real_Estate_Synthetic_200.xlsx")
+if not os.path.exists(LOAN_PATH):
+    LOAN_PATH = os.path.join(os.path.dirname(BASE_DIR), "Dubai_Loan_Assistance_Synthetic_200.xlsx")
 
 # Load Datasets
 try:
@@ -778,5 +785,7 @@ Return your response EXACTLY as a JSON object with this structure:
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    port = int(os.environ.get("PORT", 8000))
+    is_debug = "PORT" not in os.environ
+    app.run(host="0.0.0.0", port=port, debug=is_debug)
 

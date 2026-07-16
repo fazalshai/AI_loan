@@ -47,3 +47,7 @@ uritemplate==4.2.0
 urllib3==2.7.0
 Werkzeug==3.1.8
 yarl==1.24.2
+pandas>=2.0.0
+openpyxl>=3.1.0
+flask-cors>=4.0.0
+google-genai>=0.1.0
