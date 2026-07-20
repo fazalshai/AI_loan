@@ -267,6 +267,19 @@ def chat():
     agent = data.get("agent", "real_estate")  # "real_estate" or "loan"
     language_override = data.get("language")   # "en" or "ar" (optional override)
     history = data.get("history", [])         # [{sender: 'user'|'agent', text: ''}]
+    lead_profile = data.get("lead_profile")   # Optional personalized candidate record
+
+    lead_context_text = ""
+    if lead_profile and isinstance(lead_profile, dict):
+        lead_context_text = f"""
+TARGET CLIENT PROFILE:
+- Name/ID: {lead_profile.get('name') or lead_profile.get('Customer_Name') or lead_profile.get('Customer_ID') or lead_profile.get('id') or 'Valued Client'}
+- Nationality: {lead_profile.get('nationality') or lead_profile.get('Nationality') or 'N/A'}
+- Age: {lead_profile.get('age') or lead_profile.get('Age') or 'N/A'}
+- Target Budget/Price: {lead_profile.get('budget') or lead_profile.get('Price_AED') or lead_profile.get('Property_Price_AED') or lead_profile.get('price') or 'N/A'} AED
+- Preferred Location/Type: {lead_profile.get('property_type') or lead_profile.get('Property_Type') or lead_profile.get('area') or lead_profile.get('Area') or 'N/A'}
+- Monthly Salary/Income: {lead_profile.get('monthly_salary') or lead_profile.get('Monthly_Salary_AED') or 'N/A'} AED
+"""
     
     # 1. Auto-Reset state tracker if conversation history is empty (new call picked up)
     if len(history) == 0:
@@ -407,6 +420,8 @@ def chat():
             system_prompt = f"""
 You are Raj, a friendly and premium real estate advisor in Dubai. You are speaking on a live phone call.
 {greeting_rule}
+
+{lead_context_text}
 
 Available property listings from our database:
 {property_context}
@@ -560,43 +575,52 @@ Format your output exactly as a JSON object, e.g.:
 @app.route("/api/data", methods=["GET"])
 def get_data():
     """
-    Exposes raw spreadsheet records for database explorer default loading.
+    Exposes all synthetic Excel spreadsheet records with complete column metadata.
     """
     agent_type = request.args.get("agent", "real_estate")
     try:
         if agent_type == "real_estate":
-            data_subset = df_properties.head(30).fillna("").to_dict(orient="records")
-            formatted = []
-            for row in data_subset:
-                formatted.append({
-                    "id": str(row.get('Property_ID', '')),
-                    "area": str(row.get('Area', '')),
-                    "type": str(row.get('Property_Type', '')),
-                    "bedrooms": int(row.get('Bedrooms', 0)) if row.get('Bedrooms') != "" else 0,
-                    "bathrooms": int(row.get('Bathrooms', 0)) if row.get('Bathrooms') != "" else 0,
-                    "price": int(row.get('Price_AED', 0)) if row.get('Price_AED') != "" else 0,
-                    "yield": float(row.get('Rental_Yield_%', 0)) if row.get('Rental_Yield_%') != "" else 0.0,
-                    "metro": str(row.get('Metro_Access', '')),
-                    "developer": str(row.get('Developer', ''))
-                })
-            return jsonify({"data": formatted})
+            records = df_properties.fillna("").to_dict(orient="records")
+            return jsonify({"data": records, "total_count": len(records)})
         else:
-            data_subset = df_loans.head(30).fillna("").to_dict(orient="records")
-            formatted = []
-            for row in data_subset:
-                formatted.append({
-                    "Customer_ID": str(row.get('Customer_ID', '')),
-                    "Age": int(row.get('Age', 0)) if row.get('Age') != "" else 0,
-                    "Nationality": str(row.get('Nationality', '')),
-                    "Monthly_Salary": int(row.get('Monthly_Salary_AED', 0)) if row.get('Monthly_Salary_AED') != "" else 0,
-                    "Credit_Score": int(row.get('Credit_Score', 0)) if row.get('Credit_Score') != "" else 0,
-                    "Monthly_EMI_AED": int(row.get('Monthly_EMI_AED', 0)) if row.get('Monthly_EMI_AED') != "" else 0,
-                    "Loan_Approved": str(row.get('Loan_Approved', ''))
-                })
-            return jsonify({"data": formatted})
+            records = df_loans.fillna("").to_dict(orient="records")
+            return jsonify({"data": records, "total_count": len(records)})
     except Exception as e:
-        print("Error serving spreadsheet rows:", e)
+        print("Error serving synthetic dataset rows:", e)
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/upload-leads", methods=["POST"])
+def upload_leads():
+    """
+    Accepts CSV or Excel (.xlsx) file uploads, parses the lead rows, 
+    and returns a structured JSON payload with lead attributes.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded."}), 400
+    
+    file = request.files["file"]
+    filename = file.filename or ""
+    
+    try:
+        if filename.endswith(".csv"):
+            df = pd.read_csv(file)
+        elif filename.endswith(".xlsx") or filename.endswith(".xls"):
+            df = pd.read_excel(file)
+        else:
+            return jsonify({"error": "Unsupported file format. Please upload a .csv or .xlsx file."}), 400
+            
+        df = df.fillna("")
+        records = df.to_dict(orient="records")
+        return jsonify({
+            "status": "success",
+            "filename": filename,
+            "total_count": len(records),
+            "data": records
+        })
+    except Exception as e:
+        print("Error parsing uploaded lead file:", e)
+        return jsonify({"error": f"Failed to parse file: {str(e)}"}), 500
 
 
 @app.route("/api/tts", methods=["POST", "GET"])
